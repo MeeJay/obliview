@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+Thumbs.db
+coverage/
+.vscode/
+.idea/
+*.tsbuildinfo
+
+# Claude Code internal files (conversation history, memory, etc.)
+.claude/
+
+# Local dev / planning notes
+PLAN.md
+custom/

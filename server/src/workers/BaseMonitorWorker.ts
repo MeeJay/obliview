@@ -1,0 +1,300 @@
+import type { Server as SocketIOServer } from 'socket.io';
+import type { MonitorStatus } from '@obliview/shared';
+import { SOCKET_EVENTS } from '@obliview/shared';
+import { heartbeatService } from '../services/heartbeat.service';
+import { monitorService } from '../services/monitor.service';
+import { notificationService } from '../services/notification.service';
+import { groupService } from '../services/group.service';
+import { groupNotificationService } from '../services/groupNotification.service';
+import { permissionService } from '../services/permission.service';
+import { db } from '../db';
+import { logger } from '../utils/logger';
+
+export interface CheckResult {
+  status: MonitorStatus;
+  responseTime?: number;
+  statusCode?: number;
+  message?: string;
+  ping?: number;
+  value?: string;
+  /** Set to true for value watcher "changed" operator — triggers notification without changing status */
+  valueChanged?: boolean;
+}
+
+export interface MonitorConfig {
+  id: number;
+  name: string;
+  type: string;
+  groupId: number | null;
+  intervalSeconds: number;
+  retryIntervalSeconds: number;
+  maxRetries: number;
+  timeoutMs: number;
+  upsideDown: boolean;
+  [key: string]: unknown;
+}
+
+export abstract class BaseMonitorWorker {
+  protected config: MonitorConfig;
+  protected io: SocketIOServer;
+  protected timer: ReturnType<typeof setTimeout> | null = null;
+  protected isRunning: boolean = false;
+  protected retryCount: number = 0;
+  protected previousStatus: MonitorStatus = 'pending';
+  /** The last status that was officially confirmed and notified (survives retries) */
+  protected confirmedStatus: MonitorStatus = 'pending';
+
+  constructor(config: MonitorConfig, io: SocketIOServer) {
+    this.config = config;
+    this.io = io;
+  }
+
+  async start(): Promise<void> {
+    this.isRunning = true;
+    logger.info(`Starting worker for monitor "${this.config.name}" (id: ${this.config.id})`);
+    await this.beat();
+    this.scheduleNext();
+  }
+
+  stop(): void {
+    this.isRunning = false;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    logger.info(`Stopped worker for monitor "${this.config.name}" (id: ${this.config.id})`);
+  }
+
+  updateConfig(config: MonitorConfig): void {
+    this.config = config;
+  }
+
+  private scheduleNext(): void {
+    if (!this.isRunning) return;
+
+    const interval =
+      this.previousStatus === 'down' && this.retryCount <= this.config.maxRetries
+        ? this.config.retryIntervalSeconds
+        : this.config.intervalSeconds;
+
+    this.timer = setTimeout(async () => {
+      if (!this.isRunning) return;
+      await this.beat();
+      this.scheduleNext();
+    }, interval * 1000);
+  }
+
+  private async beat(): Promise<void> {
+    let result: CheckResult;
+
+    try {
+      result = await this.performCheck();
+    } catch (error) {
+      result = {
+        status: 'down',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+
+    // Apply upside-down logic (only for up/down, not SSL statuses)
+    if (this.config.upsideDown && (result.status === 'up' || result.status === 'down')) {
+      result.status = result.status === 'up' ? 'down' : 'up';
+    }
+
+    await this.processResult(result);
+  }
+
+  private async processResult(result: CheckResult): Promise<void> {
+    try {
+      // SSL statuses are deterministic (not transient) — no retries needed
+      const isSslStatus = result.status === 'ssl_warning' || result.status === 'ssl_expired';
+
+      // Determine if we are in the retry period (down but retries not exhausted)
+      if (result.status === 'down') {
+        this.retryCount++;
+      }
+      const isRetrying = result.status === 'down' && this.retryCount <= this.config.maxRetries;
+
+      // 1. Store heartbeat (with retry flag)
+      const heartbeat = await heartbeatService.create({
+        monitorId: this.config.id,
+        status: result.status,
+        responseTime: result.responseTime,
+        statusCode: result.statusCode,
+        message: result.message,
+        ping: result.ping,
+        isRetrying,
+        value: result.value,
+      });
+
+      // 1b. Value changed notification (value watcher "changed" operator)
+      //     Fires independently of status change logic — monitor stays UP
+      if (result.valueChanged) {
+        try {
+          await notificationService.sendForMonitor(this.config.id, this.config.groupId, {
+            monitorName: this.config.name,
+            monitorUrl: this.config.url as string | undefined,
+            oldStatus: 'up',
+            newStatus: 'value_changed',
+            message: result.message,
+            timestamp: new Date().toISOString(),
+          });
+        } catch (error) {
+          logger.error(error, `Failed to send value-changed notification for monitor ${this.config.id}`);
+        }
+      }
+
+      // 2. State change logic — compare against confirmedStatus (not previousStatus)
+      //    confirmedStatus tracks the last "officially notified" state.
+      //    previousStatus tracks the raw last-check status (used for scheduleNext timing).
+
+      if (result.status === 'down') {
+        if (this.retryCount > this.config.maxRetries) {
+          // Retries exhausted — confirmed DOWN
+          if (this.confirmedStatus !== 'down') {
+            await this.handleStatusChange(result.status);
+            this.confirmedStatus = 'down';
+          }
+        }
+        // During retry period: do NOT update confirmedStatus
+      } else if (isSslStatus) {
+        // SSL statuses fire immediately with no retries
+        this.retryCount = 0;
+        if (this.confirmedStatus !== result.status) {
+          await this.handleStatusChange(result.status);
+          this.confirmedStatus = result.status;
+        }
+      } else {
+        // Status is UP or other non-down/non-ssl
+        if (this.confirmedStatus !== result.status && this.confirmedStatus !== 'pending') {
+          await this.handleStatusChange(result.status);
+        }
+        this.confirmedStatus = result.status;
+        this.retryCount = 0;
+      }
+
+      this.previousStatus = result.status;
+
+      // 3. Update monitor status in DB
+      await monitorService.updateStatus(this.config.id, result.status);
+
+      // 4. Broadcast heartbeat via Socket.io (visibility-filtered)
+      await this.emitToVisibleUsers(SOCKET_EVENTS.MONITOR_HEARTBEAT, {
+        monitorId: this.config.id,
+        heartbeat,
+      });
+    } catch (error) {
+      logger.error(
+        error,
+        `Error processing result for monitor "${this.config.name}" (id: ${this.config.id})`,
+      );
+    }
+  }
+
+  private async handleStatusChange(newStatus: MonitorStatus): Promise<void> {
+    const oldStatus = this.confirmedStatus;
+    logger.info(
+      `Monitor "${this.config.name}" (id: ${this.config.id}): ${oldStatus} → ${newStatus}`,
+    );
+
+    // Emit status change event (visibility-filtered)
+    await this.emitToVisibleUsers(SOCKET_EVENTS.MONITOR_STATUS_CHANGE, {
+      monitorId: this.config.id,
+      oldStatus,
+      newStatus,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Trigger notifications
+    try {
+      // Check if this monitor is covered by a group with groupNotifications
+      const groupNotifGroupId = await groupNotificationService.shouldSuppressIndividual(
+        this.config.id,
+        this.config.groupId,
+      );
+
+      if (groupNotifGroupId !== null) {
+        // ── Grouped notifications mode ──
+        const group = await groupService.getById(groupNotifGroupId);
+
+        if (newStatus === 'down' || newStatus === 'ssl_expired' || newStatus === 'ssl_warning') {
+          const result = groupNotificationService.handleMonitorDown(
+            this.config.id,
+            this.config.name,
+            groupNotifGroupId,
+          );
+
+          if (result === 'first_down') {
+            // Send ONE group-level notification
+            await notificationService.sendForGroup(groupNotifGroupId, group!.name, {
+              monitorName: this.config.name,
+              monitorUrl: this.config.url as string | undefined,
+              oldStatus,
+              newStatus,
+              groupName: group!.name,
+              groupId: groupNotifGroupId,
+              downMonitors: [this.config.name],
+              isGroupNotification: true,
+              message: `Monitor "${this.config.name}" in group "${group!.name}" is ${newStatus.toUpperCase()}`,
+              timestamp: new Date().toISOString(),
+            });
+          }
+          // 'already_down' → suppress individual notification
+        } else if (oldStatus === 'down' || oldStatus === 'ssl_expired' || oldStatus === 'ssl_warning') {
+          const result = groupNotificationService.handleMonitorUp(
+            this.config.id,
+            groupNotifGroupId,
+          );
+
+          if (result === 'all_recovered') {
+            // Send ONE group recovery notification
+            await notificationService.sendForGroup(groupNotifGroupId, group!.name, {
+              monitorName: group!.name,
+              oldStatus: 'down',
+              newStatus: 'up',
+              groupName: group!.name,
+              groupId: groupNotifGroupId,
+              downMonitors: [],
+              isGroupNotification: true,
+              message: `All monitors in group "${group!.name}" are back up`,
+              timestamp: new Date().toISOString(),
+            });
+          }
+          // 'still_down' → suppress recovery notification
+        }
+      } else {
+        // ── Standard mode (individual notifications) ──
+        await notificationService.sendForMonitor(this.config.id, this.config.groupId, {
+          monitorName: this.config.name,
+          monitorUrl: this.config.url as string | undefined,
+          oldStatus,
+          newStatus,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      logger.error(error, `Failed to send notifications for monitor ${this.config.id}`);
+    }
+  }
+
+  /**
+   * Emit a Socket.io event only to users who can see this monitor.
+   * Admins always receive it. Non-admins receive it based on team permissions.
+   */
+  private async emitToVisibleUsers(event: string, payload: unknown): Promise<void> {
+    // Always send to admins
+    this.io.to('role:admin').emit(event, payload);
+
+    // Get non-admin user IDs with access to this monitor via team permissions
+    const userIds = await permissionService.getUsersWithMonitorAccess(this.config.id);
+    for (const userId of userIds) {
+      this.io.to(`user:${userId}`).emit(event, payload);
+    }
+  }
+
+  /**
+   * Perform the actual check. Implemented by each monitor type.
+   * Must resolve within this.config.timeoutMs.
+   */
+  abstract performCheck(): Promise<CheckResult>;
+}

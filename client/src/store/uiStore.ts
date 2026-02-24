@@ -1,0 +1,44 @@
+import { create } from 'zustand';
+
+interface UiState {
+  sidebarOpen: boolean;
+  sidebarWidth: number;
+
+  toggleSidebar: () => void;
+  setSidebarOpen: (open: boolean) => void;
+  setSidebarWidth: (width: number) => void;
+}
+
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 600;
+const STORAGE_KEY_WIDTH = 'ov-sidebar-width';
+
+function loadSavedWidth(): number {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_WIDTH);
+    if (saved) {
+      const w = parseInt(saved, 10);
+      if (!isNaN(w) && w >= MIN_SIDEBAR_WIDTH && w <= MAX_SIDEBAR_WIDTH) return w;
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return 280;
+}
+
+export const useUiStore = create<UiState>((set) => ({
+  sidebarOpen: true,
+  sidebarWidth: loadSavedWidth(),
+
+  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setSidebarWidth: (width) => {
+    const clamped = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
+    try {
+      localStorage.setItem(STORAGE_KEY_WIDTH, String(clamped));
+    } catch {
+      // localStorage unavailable
+    }
+    set({ sidebarWidth: clamped });
+  },
+}));

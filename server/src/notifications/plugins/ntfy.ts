@@ -1,0 +1,46 @@
+import type { NotificationPlugin, NotificationPayload } from '../types';
+
+export const ntfyPlugin: NotificationPlugin = {
+  type: 'ntfy',
+  name: 'ntfy',
+  description: 'Send via ntfy.sh or self-hosted ntfy',
+  configFields: [
+    { key: 'serverUrl', label: 'Server URL', type: 'url', required: true, placeholder: 'https://ntfy.sh' },
+    { key: 'topic', label: 'Topic', type: 'text', required: true, placeholder: 'my-monitoring' },
+    { key: 'token', label: 'Access Token (optional)', type: 'password' },
+    { key: 'priority', label: 'Priority (1-5)', type: 'number', placeholder: '3' },
+  ],
+
+  async send(config, payload) {
+    const icon = payload.newStatus === 'up' ? '✅' : payload.newStatus === 'value_changed' ? '🔄' : '🔴';
+    const prefix = payload.appName || 'Obliview';
+    const url = `${String(config.serverUrl).replace(/\/$/, '')}/${config.topic}`;
+    const headers: Record<string, string> = { 'Content-Type': 'text/plain' };
+    if (config.token) headers['Authorization'] = `Bearer ${config.token}`;
+
+    const priority = String(config.priority || '3');
+    headers['X-Priority'] = priority;
+    headers['X-Title'] = `[${prefix}] ${icon} ${payload.monitorName}`;
+    if (config.tags) headers['X-Tags'] = String(payload.newStatus === 'up' ? 'white_check_mark' : payload.newStatus === 'value_changed' ? 'arrows_counterclockwise' : 'rotating_light');
+
+    const body = `${payload.oldStatus} → ${payload.newStatus}${payload.message ? `\n${payload.message}` : ''}`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`ntfy returned ${res.status}`);
+  },
+
+  async sendTest(config) {
+    await this.send(config, {
+      monitorName: 'Test Monitor',
+      oldStatus: 'up',
+      newStatus: 'down',
+      message: 'Test from Obliview',
+      timestamp: new Date().toISOString(),
+    });
+  },
+};

@@ -1,0 +1,443 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Plus, CheckSquare, Activity, Clock, AlertTriangle, ShieldOff, Folder } from 'lucide-react';
+import type { Monitor, GroupTreeNode } from '@obliview/shared';
+import { useMonitorStore } from '@/store/monitorStore';
+import { useGroupStore } from '@/store/groupStore';
+import { useAuthStore } from '@/store/authStore';
+import { useSocket } from '@/hooks/useSocket';
+import { monitorsApi } from '@/api/monitors.api';
+import { MonitorCard } from '@/components/monitors/MonitorCard';
+import { estimateMaxBars } from '@/components/monitors/HeartbeatBar';
+import { Button } from '@/components/common/Button';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+
+
+/** Count all monitors inside a group tree node (recursively) */
+function countMonitors(
+  node: GroupTreeNode,
+  getMonitorsByGroup: (groupId: number | null) => Monitor[],
+): number {
+  let count = getMonitorsByGroup(node.id).length;
+  for (const child of node.children) {
+    count += countMonitors(child, getMonitorsByGroup);
+  }
+  return count;
+}
+
+/** Check recursively if a group tree node has any monitors */
+function hasAnyMonitors(
+  node: GroupTreeNode,
+  getMonitorsByGroup: (groupId: number | null) => Monitor[],
+): boolean {
+  if (getMonitorsByGroup(node.id).length > 0) return true;
+  return node.children.some((child) => hasAnyMonitors(child, getMonitorsByGroup));
+}
+
+/**
+ * Distribute items into 2 columns using a "shortest column first" algorithm.
+ * Each item has a weight (estimated height). Returns [leftItems, rightItems].
+ */
+function distributeColumns<T>(items: T[], getWeight: (item: T) => number): [T[], T[]] {
+  const left: T[] = [];
+  const right: T[] = [];
+  let leftWeight = 0;
+  let rightWeight = 0;
+
+  for (const item of items) {
+    const w = getWeight(item);
+    if (leftWeight <= rightWeight) {
+      left.push(item);
+      leftWeight += w;
+    } else {
+      right.push(item);
+      rightWeight += w;
+    }
+  }
+  return [left, right];
+}
+
+export function DashboardPage() {
+  useSocket();
+
+  const { canCreate } = useAuthStore();
+  const { fetchMonitors, fetchAllHeartbeats, getMonitorList, getMonitorsByGroup, getRecentHeartbeats, isLoading } = useMonitorStore();
+  const { tree, fetchTree } = useGroupStore();
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [overallUptime, setOverallUptime] = useState<number | null>(null);
+  const [overallAvgRt, setOverallAvgRt] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetchMonitors();
+    fetchAllHeartbeats(estimateMaxBars());
+    fetchTree();
+    monitorsApi.getSummary().then((summary) => {
+      const entries = Object.values(summary);
+      if (entries.length > 0) {
+        const totalUptime = entries.reduce((sum, e) => sum + e.uptimePct, 0);
+        setOverallUptime(Math.round((totalUptime / entries.length) * 100) / 100);
+        const rtEntries = entries.filter((e) => e.avgResponseTime !== null);
+        if (rtEntries.length > 0) {
+          const totalRt = rtEntries.reduce((sum, e) => sum + e.avgResponseTime!, 0);
+          setOverallAvgRt(Math.round(totalRt / rtEntries.length));
+        }
+      }
+    }).catch(() => {});
+  }, [fetchMonitors, fetchAllHeartbeats, fetchTree]);
+
+  const monitors = getMonitorList();
+  const showCreate = canCreate();
+
+  const upCount = monitors.filter((m) => m.status === 'up').length;
+  const downCount = monitors.filter((m) => m.status === 'down').length;
+  const pendingCount = monitors.filter((m) => m.status === 'pending').length;
+  const pausedCount = monitors.filter((m) => m.status === 'paused').length;
+  const sslWarnCount = monitors.filter((m) => m.status === 'ssl_warning').length;
+  const sslExpiredCount = monitors.filter((m) => m.status === 'ssl_expired').length;
+
+  // Offline monitors (shown in alert section AND in their normal groups)
+  const downMonitors = monitors
+    .filter((m) => m.status === 'down')
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const sslExpiredMonitors = monitors
+    .filter((m) => m.status === 'ssl_expired')
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Ungrouped monitors
+  const ungroupedMonitors = getMonitorsByGroup(null)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Build column items: each root group and ungrouped form a "block"
+  type ColumnBlock =
+    | { type: 'group'; node: GroupTreeNode }
+    | { type: 'ungrouped'; monitors: Monitor[] };
+
+  const columnBlocks = useMemo(() => {
+    const blocks: ColumnBlock[] = [];
+
+    // Root groups that have at least one monitor (anywhere in subtree)
+    for (const node of tree) {
+      if (hasAnyMonitors(node, getMonitorsByGroup)) {
+        blocks.push({ type: 'group', node });
+      }
+    }
+
+    // Ungrouped monitors
+    if (ungroupedMonitors.length > 0) {
+      blocks.push({ type: 'ungrouped', monitors: ungroupedMonitors });
+    }
+
+    return blocks;
+  }, [tree, ungroupedMonitors, getMonitorsByGroup]);
+
+  const [leftBlocks, rightBlocks] = useMemo(() => {
+    return distributeColumns(columnBlocks, (block) => {
+      if (block.type === 'ungrouped') return block.monitors.length + 1; // +1 for header
+      return countMonitors(block.node, getMonitorsByGroup) + 1;
+    });
+  }, [columnBlocks, getMonitorsByGroup]);
+
+  const handleSelect = (id: number) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
+
+  const renderBlock = (block: ColumnBlock) => {
+    if (block.type === 'ungrouped') {
+      return (
+        <DashboardSection
+          key="ungrouped"
+          title="Ungrouped"
+          borderColor="border-border"
+        >
+          {block.monitors.map((m) => (
+            <MonitorCard
+              key={m.id}
+              monitor={m}
+              heartbeats={getRecentHeartbeats(m.id)}
+              selectionMode={selectionMode}
+              selected={selectedIds.has(m.id)}
+              onSelect={handleSelect}
+            />
+          ))}
+        </DashboardSection>
+      );
+    }
+
+    return (
+      <GroupSection
+        key={block.node.id}
+        node={block.node}
+        depth={0}
+        getMonitorsByGroup={getMonitorsByGroup}
+        getRecentHeartbeats={getRecentHeartbeats}
+        selectionMode={selectionMode}
+        selectedIds={selectedIds}
+        onSelect={handleSelect}
+      />
+    );
+  };
+
+  if (isLoading && monitors.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-semibold text-text-primary">Dashboard</h1>
+        {showCreate && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSelectionMode(!selectionMode);
+                setSelectedIds(new Set());
+              }}
+            >
+              <CheckSquare size={16} className="mr-1.5" />
+              {selectionMode ? 'Cancel' : 'Select'}
+            </Button>
+            <Link to="/monitor/new">
+              <Button size="sm">
+                <Plus size={16} className="mr-1.5" />
+                Add Monitor
+              </Button>
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* Stats Overview */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-4 mb-6">
+        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <div className="text-2xl font-bold text-status-up">{upCount}</div>
+          <div className="text-sm text-text-secondary">Up</div>
+        </div>
+        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <div className="text-2xl font-bold text-status-down">{downCount}</div>
+          <div className="text-sm text-text-secondary">Down</div>
+        </div>
+        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <div className="text-2xl font-bold text-status-pending">{pendingCount}</div>
+          <div className="text-sm text-text-secondary">Pending</div>
+        </div>
+        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <div className="text-2xl font-bold text-status-paused">{pausedCount}</div>
+          <div className="text-sm text-text-secondary">Paused</div>
+        </div>
+        {(sslWarnCount > 0 || sslExpiredCount > 0) && (
+          <div className="rounded-lg border border-border bg-bg-secondary p-4">
+            <div className="text-2xl font-bold text-status-ssl-warning">{sslWarnCount}</div>
+            <div className="text-sm text-text-secondary">SSL Warn</div>
+          </div>
+        )}
+        {sslExpiredCount > 0 && (
+          <div className="rounded-lg border border-border bg-bg-secondary p-4">
+            <div className="text-2xl font-bold text-status-ssl-expired">{sslExpiredCount}</div>
+            <div className="text-sm text-text-secondary">SSL Expired</div>
+          </div>
+        )}
+        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <div className="flex items-center gap-1.5 text-2xl font-bold text-accent">
+            <Activity size={20} />
+            {overallUptime !== null ? `${overallUptime}%` : '-'}
+          </div>
+          <div className="text-sm text-text-secondary">Uptime (24h)</div>
+        </div>
+        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <div className="flex items-center gap-1.5 text-2xl font-bold text-text-primary">
+            <Clock size={20} />
+            {overallAvgRt !== null ? `${overallAvgRt}ms` : '-'}
+          </div>
+          <div className="text-sm text-text-secondary">Avg Response</div>
+        </div>
+      </div>
+
+      {/* Bulk action bar */}
+      {selectionMode && selectedIds.size > 0 && (
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-accent/30 bg-bg-tertiary p-3">
+          <span className="text-sm text-text-secondary">
+            {selectedIds.size} monitor{selectedIds.size > 1 ? 's' : ''} selected
+          </span>
+          <Button variant="secondary" size="sm">
+            Edit Selected
+          </Button>
+          <Button variant="secondary" size="sm">
+            Pause
+          </Button>
+          <Button variant="danger" size="sm">
+            Delete
+          </Button>
+        </div>
+      )}
+
+      {/* ── Down monitors (full width, above columns) ── */}
+      {downMonitors.length > 0 && (
+        <DashboardSection
+          icon={<AlertTriangle size={16} className="text-status-down" />}
+          title="Down"
+          badge={<span className="text-xs font-semibold text-status-down">{downMonitors.length}</span>}
+          borderColor="border-status-down/30"
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+            {downMonitors.map((m) => (
+              <MonitorCard
+                key={m.id}
+                monitor={m}
+                heartbeats={getRecentHeartbeats(m.id)}
+                selectionMode={selectionMode}
+                selected={selectedIds.has(m.id)}
+                onSelect={handleSelect}
+              />
+            ))}
+          </div>
+        </DashboardSection>
+      )}
+
+      {/* ── SSL Expired monitors (full width, above columns) ── */}
+      {sslExpiredMonitors.length > 0 && (
+        <DashboardSection
+          icon={<ShieldOff size={16} className="text-status-ssl-expired" />}
+          title="SSL Expired"
+          badge={<span className="text-xs font-semibold text-status-ssl-expired">{sslExpiredMonitors.length}</span>}
+          borderColor="border-status-ssl-expired/30"
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+            {sslExpiredMonitors.map((m) => (
+              <MonitorCard
+                key={m.id}
+                monitor={m}
+                heartbeats={getRecentHeartbeats(m.id)}
+                selectionMode={selectionMode}
+                selected={selectedIds.has(m.id)}
+                onSelect={handleSelect}
+              />
+            ))}
+          </div>
+        </DashboardSection>
+      )}
+
+      {/* ── Two-column layout for groups ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6">
+        <div>
+          {leftBlocks.map(renderBlock)}
+        </div>
+        <div>
+          {rightBlocks.map(renderBlock)}
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {monitors.length === 0 && (
+        <div className="py-12 text-center">
+          <p className="text-text-muted">No monitors found</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Renders a group and its subgroups recursively */
+function GroupSection({
+  node,
+  depth,
+  getMonitorsByGroup,
+  getRecentHeartbeats,
+  selectionMode,
+  selectedIds,
+  onSelect,
+}: {
+  node: GroupTreeNode;
+  depth: number;
+  getMonitorsByGroup: (groupId: number | null) => Monitor[];
+  getRecentHeartbeats: (id: number) => import('@obliview/shared').Heartbeat[];
+  selectionMode: boolean;
+  selectedIds: Set<number>;
+  onSelect: (id: number) => void;
+}) {
+  const groupMonitors = getMonitorsByGroup(node.id)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Skip entirely empty groups (no monitors at any level)
+  if (!hasAnyMonitors(node, getMonitorsByGroup)) return null;
+
+  return (
+    <DashboardSection
+      icon={<Folder size={16} className="text-accent" />}
+      title={node.name}
+      depth={depth}
+      borderColor="border-accent/20"
+    >
+      {/* Direct monitors */}
+      {groupMonitors.map((m) => (
+        <MonitorCard
+          key={m.id}
+          monitor={m}
+          heartbeats={getRecentHeartbeats(m.id)}
+          selectionMode={selectionMode}
+          selected={selectedIds.has(m.id)}
+          onSelect={onSelect}
+        />
+      ))}
+
+      {/* Child groups */}
+      {node.children.map((child) => (
+        <GroupSection
+          key={child.id}
+          node={child}
+          depth={depth + 1}
+          getMonitorsByGroup={getMonitorsByGroup}
+          getRecentHeartbeats={getRecentHeartbeats}
+          selectionMode={selectionMode}
+          selectedIds={selectedIds}
+          onSelect={onSelect}
+        />
+      ))}
+    </DashboardSection>
+  );
+}
+
+/** Reusable section wrapper with a title header */
+function DashboardSection({
+  icon,
+  title,
+  badge,
+  borderColor = 'border-border',
+  depth = 0,
+  children,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  badge?: React.ReactNode;
+  borderColor?: string;
+  depth?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`mb-4 ${depth > 0 ? 'ml-4' : ''}`}>
+      <div className={`flex items-center gap-2 mb-2 pb-1 border-b ${borderColor}`}>
+        {icon}
+        <span className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+          {title}
+        </span>
+        {badge}
+      </div>
+      <div className="space-y-2">
+        {children}
+      </div>
+    </div>
+  );
+}
