@@ -25,3 +25,10 @@ One command to get started:<br>
 Or pull the images directly from Docker Hub and bring your own PostgreSQL instance.
 
 Stack: Node.js · TypeScript · Express · React · Vite · Tailwind CSS · PostgreSQL · Socket.io
+
+---
+
+> **🤖 An experiment with Claude Code**
+>
+> This project was built as an experiment to see how far [Claude Code](https://claude.ai/claude-code) could be pushed as a development tool.
+Claude was used as a coding assistant throughout the process.
