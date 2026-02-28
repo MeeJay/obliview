@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   DndContext,
@@ -52,22 +52,27 @@ function usePersisted<T>(key: string, initial: T): [T, (v: T | ((prev: T) => T))
   return [value, set];
 }
 
-// ── Status dot ───────────────────────────────────────────────────────────────
+// ── Status badge (dot + label) ────────────────────────────────────────────────
 
-function AgentStatusDot({ status }: { status: MonitorStatus | 'suspended' | undefined }) {
-  const colorMap: Record<string, string> = {
-    up:       'bg-green-500',
-    down:     'bg-red-500',
-    alert:    'bg-orange-500',
-    inactive: 'bg-gray-400',
-    paused:   'bg-gray-500',
-    suspended:'bg-gray-500',
-    pending:  'bg-yellow-500',
-    ssl_warning: 'bg-yellow-400',
-    ssl_expired: 'bg-red-500',
+function AgentStatusBadge({ status }: { status: MonitorStatus | 'suspended' | undefined }) {
+  const cfg: Record<string, { dot: string; text: string; label: string }> = {
+    up:          { dot: 'bg-green-500',  text: 'text-green-400',  label: 'UP'       },
+    down:        { dot: 'bg-red-500',    text: 'text-red-400',    label: 'DOWN'     },
+    alert:       { dot: 'bg-orange-500', text: 'text-orange-400', label: 'ALERT'    },
+    inactive:    { dot: 'bg-gray-400',   text: 'text-gray-400',   label: 'OFFLINE'  },
+    suspended:   { dot: 'bg-gray-500',   text: 'text-gray-500',   label: 'PAUSED'   },
+    paused:      { dot: 'bg-gray-500',   text: 'text-gray-500',   label: 'PAUSED'   },
+    pending:     { dot: 'bg-yellow-500', text: 'text-yellow-400', label: 'PENDING'  },
+    ssl_warning: { dot: 'bg-yellow-400', text: 'text-yellow-400', label: 'WARN'     },
+    ssl_expired: { dot: 'bg-red-500',    text: 'text-red-400',    label: 'EXPIRED'  },
   };
-  const cls = colorMap[status ?? ''] ?? 'bg-gray-400';
-  return <span className={`w-2 h-2 rounded-full shrink-0 ${cls}`} />;
+  const s = cfg[status ?? ''] ?? { dot: 'bg-gray-400', text: 'text-gray-400', label: '···' };
+  return (
+    <span className="flex items-center gap-1 shrink-0">
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.dot}`} />
+      <span className={`text-[9px] font-semibold leading-none ${s.text}`}>{s.label}</span>
+    </span>
+  );
 }
 
 // ── Draggable Agent Device Item ───────────────────────────────────────────────
@@ -111,7 +116,7 @@ function DraggableDeviceItem({
           if (isDragging) e.preventDefault();
         }}
       >
-        <AgentStatusDot status={device.status === 'suspended' ? 'suspended' : monitorStatus} />
+        <AgentStatusBadge status={device.status === 'suspended' ? 'suspended' : monitorStatus} />
         <span className="truncate flex-1 text-xs">{displayName}</span>
       </Link>
     </div>
@@ -176,6 +181,9 @@ export function Sidebar() {
   const [sidebarLayout, setSidebarLayout] = usePersisted<'stacked' | 'side-by-side'>('sidebar-layout', 'stacked');
   const [showMonitors, setShowMonitors] = usePersisted<boolean>('sidebar-show-monitors', true);
   const [showAgents, setShowAgents] = usePersisted<boolean>('sidebar-show-agents', true);
+  // Split column width: percent of the split container assigned to the Monitors column (20–80)
+  const [splitPercent, setSplitPercent] = usePersisted<number>('sidebar-split-percent', 50);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
 
   // Agent groups (kind='agent')
   const agentGroups = tree.filter(n => n.kind === 'agent');
@@ -243,14 +251,37 @@ export function Sidebar() {
     [loadDevices],
   );
 
+  // ── Split column resize ───────────────────────────────────────────────────
+  const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const pct = Math.round(((ev.clientX - rect.left) / rect.width) * 100);
+      setSplitPercent(Math.max(20, Math.min(80, pct)));
+    };
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [setSplitPercent]);
+
   // ── Agent section render helper ──────────────────────────────────────────
-  const agentSection = admin ? (
+  // hideHeader=true when used as a split column (the column title acts as header)
+  const renderAgentContent = (hideHeader = false) => !admin ? null : (
     <DndContext sensors={sensors} onDragEnd={handleAgentDragEnd}>
-      <div className="mt-2 pt-2 border-t border-border">
+      <div className={hideHeader ? '' : 'mt-2 pt-2 border-t border-border'}>
+        {!hideHeader && (
         <div className="px-2 py-1 flex items-center gap-1.5 text-xs font-medium text-text-muted uppercase tracking-wider">
           <Server size={12} />
           Agent Groups
-        </div>
+        </div>)}
 
         {/* Grouped devices */}
         {agentGroups.map(group => {
@@ -299,7 +330,7 @@ export function Sidebar() {
         )}
       </div>
     </DndContext>
-  ) : null;
+  );
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-border bg-bg-secondary">
@@ -333,10 +364,9 @@ export function Sidebar() {
         />
       </div>
 
-      {/* Filter chips + layout toggle (admin only, shown when there are agent groups) */}
-      {admin && agentGroups.length > 0 && (
+      {/* Filter chips + layout toggle — stacked mode only */}
+      {admin && agentGroups.length > 0 && sidebarLayout === 'stacked' && (
         <div className="flex items-center justify-between px-3 pb-1.5 gap-2">
-          {/* Filter chips */}
           <div className="flex gap-1">
             <button
               onClick={() => setShowMonitors(v => !v)}
@@ -361,10 +391,9 @@ export function Sidebar() {
               Agents
             </button>
           </div>
-          {/* Layout toggle */}
           <button
-            onClick={() => setSidebarLayout(l => l === 'stacked' ? 'side-by-side' : 'stacked')}
-            title={sidebarLayout === 'stacked' ? 'Switch to side-by-side' : 'Switch to stacked'}
+            onClick={() => setSidebarLayout('side-by-side')}
+            title="Switch to side-by-side"
             className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
           >
             <ArrowLeftRight size={13} />
@@ -373,21 +402,49 @@ export function Sidebar() {
       )}
 
       {/* Content area — stacked or side-by-side */}
-      {sidebarLayout === 'side-by-side' && showMonitors && showAgents && admin && agentGroups.length > 0 ? (
-        <div className="flex flex-row flex-1 overflow-hidden min-h-0">
-          {/* Monitors column */}
-          <div className="flex-1 overflow-y-auto px-2 border-r border-border min-w-0">
-            <GroupTree />
+      {sidebarLayout === 'side-by-side' && admin && agentGroups.length > 0 ? (
+        <div ref={splitContainerRef} className="flex flex-row flex-1 overflow-hidden min-h-0">
+
+          {/* ── Monitors column ── */}
+          <div className="flex flex-col overflow-hidden min-w-0" style={{ width: `${splitPercent}%` }}>
+            {/* Column header */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-text-muted">Monitors</span>
+            </div>
+            <div className="flex-1 overflow-y-auto px-2 min-h-0">
+              <GroupTree />
+            </div>
           </div>
-          {/* Agents column */}
-          <div className="flex-1 overflow-y-auto px-2 min-w-0">
-            {agentSection}
+
+          {/* ── Resize handle ── */}
+          <div
+            onMouseDown={handleSplitMouseDown}
+            className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-accent/50 active:bg-accent/70 transition-colors"
+          />
+
+          {/* ── Agents column ── */}
+          <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+            {/* Column header */}
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-border shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-text-muted">Agents</span>
+              <button
+                onClick={() => setSidebarLayout('stacked')}
+                title="Switch to stacked"
+                className="p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+              >
+                <ArrowLeftRight size={12} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-2 min-h-0">
+              {renderAgentContent(true)}
+            </div>
           </div>
+
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-2">
           {showMonitors && <GroupTree />}
-          {showAgents && agentSection}
+          {showAgents && renderAgentContent(false)}
         </div>
       )}
 

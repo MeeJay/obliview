@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, RefreshCw, Settings2, Cpu, HardDrive,
@@ -26,16 +26,16 @@ const MAX_HISTORY = 60;
 // Section height persistence (drag-to-resize, stored in localStorage)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SECTION_HEIGHTS_KEY = 'bk:agent-section-heights';
+const SECTION_HEIGHTS_KEY = 'bk:agent-section-heights-v2';
 
-// MIN_TOP_HEIGHT: header (~62px) + 8 grid-rows × 16px + 7 gaps × 5px + py-2 (16px) = 243px
-// 2-column grid: 8 rows × 2 cores = 16 cores visible by default.
-// Cores beyond 16 are accessible via scrollbar; scrollbar shrinks as section grows.
-const MIN_TOP_HEIGHT    = 244;
+// Thread grid has a hard max-h-[148px] → 8 rows × ~14px + 7 gaps × 3px + py-2 (16px) ≈ 148px.
+// That equals 16 threads. Any extra threads appear via the scrollbar inside that div.
+// MIN_TOP_HEIGHT = SectionCard header (~60px) + thread area (148px) + breathing room ≈ 215px.
+const MIN_TOP_HEIGHT    = 215;
 const MIN_MIDDLE_HEIGHT = 120;
 const MIN_BOTTOM_HEIGHT = 80;
 
-const DEFAULT_HEIGHTS = { top: 260, middle: 200, bottom: 160 };
+const DEFAULT_HEIGHTS = { top: 220, middle: 200, bottom: 160 };
 
 function useSectionHeights() {
   const [heights, setHeights] = useState<{ top: number; middle: number; bottom: number }>(() => {
@@ -293,10 +293,10 @@ function CpuCard({ metrics, violating }: { metrics: AgentMetrics; violating: boo
         <div className="w-px bg-border shrink-0" />
 
         {/* Right: 2-column scrollable grid
-             — each cell = 1 physical core, T1 + T2 stacked vertically
-             — 8 rows × 2 cols = 16 cores visible at minimum height
-             — scrollbar appears automatically when there are >16 cores     */}
-        <div className="flex-1 overflow-y-auto py-2 px-2 min-h-0">
+             — each column = 1 thread (T01 left, T02 right), 1 core per row
+             — max-h-[148px] ≈ 8 rows (16 threads) always visible
+             — any extra threads are accessible via the scrollbar              */}
+        <div className="overflow-y-auto py-2 px-2 max-h-[148px]">
           {cores.length > 0 ? (() => {
             const pairs: Array<{ num: number; t1: number; t2?: number }> = [];
             for (let i = 0; i < cores.length; i += 2) {
@@ -304,38 +304,44 @@ function CpuCard({ metrics, violating }: { metrics: AgentMetrics; violating: boo
             }
             return (
               <div
-                className="grid gap-x-2 gap-y-[5px]"
+                className="grid gap-x-3 gap-y-[3px]"
                 style={{ gridTemplateColumns: '1fr 1fr' }}
               >
-                {pairs.map((c) => (
-                  <div key={c.num} className="flex items-start gap-1 min-w-0">
-                    {/* Core number */}
-                    <span className="text-[8px] text-text-muted/80 w-5 shrink-0 font-medium leading-none mt-[3px]">
-                      C{c.num}
-                    </span>
-                    {/* T1 + T2 stacked */}
-                    <div className="flex-1 min-w-0 space-y-[2px]">
-                      <div className="flex items-center gap-0.5 min-w-0">
+                {pairs.map((c) => {
+                  const cn = String(c.num).padStart(2, '0');
+                  return (
+                    <React.Fragment key={c.num}>
+                      {/* T01 — left column */}
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="text-[8px] font-mono text-text-muted/80 w-[38px] shrink-0">
+                          C{cn}T01
+                        </span>
                         <div className="flex-1 min-w-0">
-                          <Bar pct={c.t1} color={usageBarClass(c.t1)} h="h-[3px]" />
+                          <Bar pct={c.t1} color={usageBarClass(c.t1)} h="h-[4px]" />
                         </div>
-                        <span className="text-[7px] tabular-nums text-text-secondary w-[18px] text-right shrink-0 leading-none">
+                        <span className="text-[9px] tabular-nums text-text-secondary w-[22px] text-right shrink-0">
                           {c.t1.toFixed(0)}%
                         </span>
                       </div>
-                      {c.t2 !== undefined && (
-                        <div className="flex items-center gap-0.5 min-w-0">
+                      {/* T02 — right column */}
+                      {c.t2 !== undefined ? (
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span className="text-[8px] font-mono text-text-muted/80 w-[38px] shrink-0">
+                            C{cn}T02
+                          </span>
                           <div className="flex-1 min-w-0">
-                            <Bar pct={c.t2} color={usageBarClass(c.t2)} h="h-[3px]" />
+                            <Bar pct={c.t2} color={usageBarClass(c.t2)} h="h-[4px]" />
                           </div>
-                          <span className="text-[7px] tabular-nums text-text-secondary w-[18px] text-right shrink-0 leading-none">
+                          <span className="text-[9px] tabular-nums text-text-secondary w-[22px] text-right shrink-0">
                             {c.t2.toFixed(0)}%
                           </span>
                         </div>
+                      ) : (
+                        <div /> /* empty cell — keep grid aligned for odd thread counts */
                       )}
-                    </div>
-                  </div>
-                ))}
+                    </React.Fragment>
+                  );
+                })}
               </div>
             );
           })() : (
@@ -632,7 +638,7 @@ function OverviewView({
     <div>
       {/* ── Top row: CPU / RAM / GPU ── */}
       <div
-        className="grid gap-4 grid-cols-1 md:grid-cols-3"
+        className="grid gap-4 grid-cols-1 md:grid-cols-3 overflow-hidden"
         style={{ height: heights.top }}
       >
         <div className="h-full flex flex-col">
@@ -1031,7 +1037,7 @@ export function AgentDetailPage() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-full">
 
       {/* ── Main scrollable content ── */}
       <div className="flex-1 min-w-0 p-4 md:p-6 space-y-4">
