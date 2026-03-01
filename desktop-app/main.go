@@ -195,6 +195,9 @@ func main() {
 	w.SetTitle("Obliview")
 	w.SetSize(1280, 800, webview.HintNone)
 
+	// Apply the app icon to the window (title bar on Windows, Dock on macOS).
+	applyWindowIcon(w.Window())
+
 	// __go_saveURL is callable from JS on both the setup page and the gear dialog.
 	// It persists the URL to disk; the JS side then does window.location.replace(url).
 	if err := w.Bind("__go_saveURL", func(url string) {

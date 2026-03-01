@@ -19,6 +19,7 @@ import { config } from './config';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimiter';
 import { routes } from './routes';
+import { logger } from './utils/logger';
 
 const PgSession = connectPgSimple(session);
 
@@ -42,14 +43,21 @@ export function createApp() {
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
-  // Sessions
+  // Sessions — stored in PostgreSQL via connect-pg-simple.
+  // Log errors so we can diagnose DB connection drops that would otherwise
+  // silently cause "Invalid username or password" on the login page.
+  const sessionStore = new PgSession({
+    conString: config.databaseUrl,
+    tableName: 'session',
+    createTableIfMissing: false,
+  });
+  sessionStore.on('error', (err: Error) => {
+    logger.error(err, 'Session store error — sessions may fail until DB connection recovers');
+  });
+
   app.use(
     session({
-      store: new PgSession({
-        conString: config.databaseUrl,
-        tableName: 'session',
-        createTableIfMissing: false,
-      }),
+      store: sessionStore,
       secret: config.sessionSecret,
       resave: false,
       saveUninitialized: false,

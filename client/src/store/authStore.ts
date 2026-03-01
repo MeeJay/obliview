@@ -33,13 +33,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       const user = await authApi.login({ username, password });
-      // Fetch permissions after login
-      const { permissions } = await authApi.me();
-      set({ user, permissions, isLoading: false });
+      // Mark the user as logged in immediately after the login call succeeds.
+      // Do NOT block on me() — a transient DB issue after a successful login
+      // should not appear as "wrong password" to the user.
+      set({ user, isLoading: false });
       connectSocket(user.id);
-    } catch {
+      // Fetch permissions in the background; failure is non-fatal here.
+      authApi.me()
+        .then(({ permissions }) => set({ permissions }))
+        .catch(() => { /* non-critical — permissions will load on next checkSession */ });
+    } catch (err) {
       set({ isLoading: false });
-      throw new Error('Invalid username or password');
+      // Re-throw the real server error instead of always saying "wrong password".
+      // AxiosError exposes error.response.data.error (our API shape) and error.response.status.
+      const axiosErr = err as { response?: { data?: { error?: string }; status?: number }; message?: string };
+      const serverMessage = axiosErr?.response?.data?.error;
+      const status = axiosErr?.response?.status;
+      if (status === 429) {
+        throw new Error(serverMessage ?? 'Too many login attempts, please try again later');
+      } else if (status === 401) {
+        throw new Error(serverMessage ?? 'Invalid username or password');
+      } else if (serverMessage) {
+        // 500 or other server error — show the real message, not "wrong password"
+        throw new Error(serverMessage);
+      } else {
+        throw new Error(axiosErr?.message ?? 'Unable to connect to the server');
+      }
     }
   },
 
