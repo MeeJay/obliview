@@ -26,10 +26,11 @@ const PgSession = connectPgSimple(session);
 export function createApp() {
   const app = express();
 
-  // Trust reverse proxy so req.ip uses X-Forwarded-For (required for accurate rate limiting)
+  // Trust the first reverse proxy hop so req.ip uses X-Forwarded-For.
+  // Required for accurate rate limiting when behind Nginx / Nginx Proxy Manager.
   app.set('trust proxy', 1);
 
-  // Security
+  // Security headers
   app.use(helmet());
   app.use(
     cors({
@@ -37,13 +38,15 @@ export function createApp() {
       credentials: true,
     }),
   );
-  app.use(apiLimiter);
 
-  // Parsing
+  // Parsing — cookieParser must come before session (session reads the cookie).
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
   // Sessions — stored in PostgreSQL via connect-pg-simple.
+  // MUST be set up before apiLimiter so that req.session.userId is available
+  // in the limiter's skip() function (authenticated users are excluded from
+  // rate limiting to avoid shared-IP false positives behind a reverse proxy).
   // Log errors so we can diagnose DB connection drops that would otherwise
   // silently cause "Invalid username or password" on the login page.
   const sessionStore = new PgSession({
@@ -69,6 +72,10 @@ export function createApp() {
       },
     }),
   );
+
+  // Rate limiting — runs after session so authenticated users can be skipped.
+  // Only unauthenticated endpoints (login page, public health, etc.) are limited.
+  app.use(apiLimiter);
 
   // API routes
   app.use('/api', routes);
