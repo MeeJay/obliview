@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
+import { DesktopUpdateBanner } from './DesktopUpdateBanner';
 import { useUiStore } from '@/store/uiStore';
 import { cn } from '@/utils/cn';
 
@@ -64,6 +65,7 @@ export function AppLayout() {
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
+        <DesktopUpdateBanner />
         <main className="flex-1 overflow-y-auto flex flex-col">
           <Outlet />
         </main>

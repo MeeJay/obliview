@@ -1,11 +1,17 @@
 import { Monitor, Apple, Download, ExternalLink } from 'lucide-react';
 
+interface Download_ {
+  label: string;
+  filename: string;
+  primary?: boolean;
+  note?: string;
+}
+
 interface Platform {
   name: string;
   icon: React.ReactNode;
   description: string;
-  filename: string;
-  note?: string;
+  downloads: Download_[];
 }
 
 const PLATFORMS: Platform[] = [
@@ -13,15 +19,37 @@ const PLATFORMS: Platform[] = [
     name: 'Windows',
     icon: <Monitor size={28} />,
     description: 'Windows 10 / 11 (64-bit)',
-    filename: 'Obliview.exe',
-    note: 'Requires WebView2 (included with Windows 10 1803+ or Edge Chromium)',
+    downloads: [
+      {
+        label: 'Installer (.msi)',
+        filename: 'ObliviewSetup.msi',
+        primary: true,
+        note: 'Installs to Program Files with a Start Menu shortcut. Recommended.',
+      },
+      {
+        label: 'Portable (.exe)',
+        filename: 'Obliview.exe',
+        note: 'Single executable — no installation needed. Requires WebView2 (built into Windows 10 1803+ / Edge Chromium).',
+      },
+    ],
   },
   {
     name: 'macOS',
     icon: <Apple size={28} />,
     description: 'macOS 10.13 or later',
-    filename: 'Obliview.zip',
-    note: 'Extract the zip and move Obliview.app to your Applications folder. Right-click → Open on first launch (Gatekeeper).',
+    downloads: [
+      {
+        label: 'Disk Image (.dmg)',
+        filename: 'Obliview.dmg',
+        primary: true,
+        note: 'Open the DMG and drag Obliview to Applications. Right-click → Open on first launch (Gatekeeper).',
+      },
+      {
+        label: 'Zip archive (.zip)',
+        filename: 'Obliview.zip',
+        note: 'Extract and move Obliview.app to Applications manually.',
+      },
+    ],
   },
 ];
 
@@ -75,19 +103,26 @@ export function DownloadPage() {
               </div>
             </div>
 
-            {p.note && (
-              <p className="mb-4 text-xs text-text-muted leading-relaxed">{p.note}</p>
-            )}
-
-            <div className="mt-auto">
-              <a
-                href={`/downloads/${p.filename}`}
-                download={p.filename}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
-              >
-                <Download size={14} />
-                Download {p.filename}
-              </a>
+            <div className="mt-auto flex flex-col gap-2">
+              {p.downloads.map((d) => (
+                <div key={d.filename}>
+                  {d.note && (
+                    <p className="mb-1.5 text-xs text-text-muted leading-relaxed">{d.note}</p>
+                  )}
+                  <a
+                    href={`/downloads/${d.filename}`}
+                    download={d.filename}
+                    className={
+                      d.primary
+                        ? 'flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90'
+                        : 'flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-bg-tertiary px-4 py-2 text-xs text-text-secondary transition-colors hover:bg-bg-secondary hover:text-text-primary'
+                    }
+                  >
+                    <Download size={d.primary ? 14 : 12} />
+                    {d.label}
+                  </a>
+                </div>
+              ))}
             </div>
           </div>
         ))}
@@ -105,8 +140,9 @@ export function DownloadPage() {
           directory of the Obliview repository.
           It is a Go application using the native OS webview (WebView2 on Windows, WKWebView on macOS).{' '}
           On Windows run{' '}
-          <code className="rounded bg-bg-tertiary px-1.5 py-0.5 text-xs font-mono text-text-primary">build_icon_and_obliview.ps1</code>,{' '}
-          on macOS run{' '}
+          <code className="rounded bg-bg-tertiary px-1.5 py-0.5 text-xs font-mono text-text-primary">.\build-windows.ps1</code>{' '}
+          (requires WiX v4: <code className="rounded bg-bg-tertiary px-1.5 py-0.5 text-xs font-mono text-text-primary">dotnet tool install --global wix</code>).{' '}
+          On macOS run{' '}
           <code className="rounded bg-bg-tertiary px-1.5 py-0.5 text-xs font-mono text-text-primary">./build-mac.sh</code>.
         </p>
       </div>

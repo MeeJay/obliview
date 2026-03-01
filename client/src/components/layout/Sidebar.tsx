@@ -22,6 +22,7 @@ import {
   Server,
   ArrowLeftRight,
   PackageOpen,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAuthStore } from '@/store/authStore';
@@ -167,6 +168,7 @@ const navItems: NavItem[] = [
   { label: 'Notifications',   path: '/notifications',        icon: <Bell size={18} />,        adminOnly: true },
   { label: 'Users',           path: '/admin/users',          icon: <Users size={18} />,       adminOnly: true },
   { label: 'Agents',          path: '/admin/agents',         icon: <Cpu size={18} />,         adminOnly: true },
+  { label: 'Remediations',    path: '/admin/remediations',   icon: <ShieldCheck size={18} />, adminOnly: true },
   { label: 'Import / Export', path: '/admin/import-export',  icon: <PackageOpen size={18} />, adminOnly: true },
   { label: 'Settings',        path: '/settings',             icon: <Settings size={18} />,    adminOnly: true },
 ];

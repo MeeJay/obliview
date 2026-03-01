@@ -9,6 +9,11 @@ import (
 // defaultW / defaultH — initial window content size on first launch.
 const defaultW, defaultH = 1280, 800
 
+// appVersion is the desktop app version, read by the server to serve the
+// "latest desktop version" endpoint and injected into every page load so the
+// React app can detect when an update is available.
+const appVersion = "1.0.0"
+
 // overlayJS is injected on every page load via w.Init().
 //
 // Safety guards:
@@ -252,6 +257,9 @@ func main() {
 
 	// Inject the overlay script on every page load.
 	w.Init(overlayJS)
+	// Inject the app version so the React app can compare against the server's
+	// latest-desktop-version endpoint and show an update banner if needed.
+	w.Init(fmt.Sprintf("window.__obliview_app_version=%q;", appVersion))
 
 	if cfg.URL == "" {
 		// First run — show the local setup page.

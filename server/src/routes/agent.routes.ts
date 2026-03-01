@@ -5,6 +5,7 @@ import { agentAuth } from '../middleware/agentAuth';
 import {
   agentPush,
   agentVersion,
+  desktopVersion,
   agentDownload,
   agentInstallerLinux,
   agentInstallerWindows,
@@ -30,6 +31,9 @@ router.post('/push', agentAuth, agentPush);
 // Agent auto-update endpoints
 router.get('/version', agentVersion);
 router.get('/download/:filename', agentDownload);
+
+// Desktop app version (used by the React app to show update banner)
+router.get('/desktop-version', desktopVersion);
 
 // Installer scripts (with API key injected)
 router.get('/installer/linux', agentInstallerLinux);

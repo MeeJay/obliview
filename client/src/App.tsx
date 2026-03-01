@@ -19,6 +19,7 @@ import { GroupDetailPage } from '@/pages/GroupDetailPage';
 import { GroupEditPage } from '@/pages/GroupEditPage';
 import { DownloadPage } from '@/pages/DownloadPage';
 import { ImportExportPage } from '@/pages/ImportExportPage';
+import { AdminRemediationsPage } from '@/pages/AdminRemediationsPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 
 export default function App() {
@@ -53,6 +54,7 @@ export default function App() {
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/agents" element={<AdminAgentPage />} />
               <Route path="/admin/import-export" element={<ImportExportPage />} />
+              <Route path="/admin/remediations" element={<AdminRemediationsPage />} />
               <Route path="/agents/:deviceId" element={<AgentDetailPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>

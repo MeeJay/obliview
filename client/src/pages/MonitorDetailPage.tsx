@@ -15,6 +15,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { PeriodSelector } from '@/components/common/PeriodSelector';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { NotificationBindingsPanel } from '@/components/notifications/NotificationBindingsPanel';
+import { RemediationBindingsPanel } from '@/components/remediation/RemediationBindingsPanel';
 import type { Heartbeat } from '@obliview/shared';
 import toast from 'react-hot-toast';
 
@@ -357,6 +358,17 @@ export function MonitorDetailPage() {
             scope="monitor"
             scopeId={monitorId}
             title="Notification Channels"
+          />
+        </div>
+      )}
+
+      {/* Remediation Bindings (admin only) */}
+      {isAdmin() && (
+        <div className="mt-4">
+          <RemediationBindingsPanel
+            scope="monitor"
+            scopeId={monitorId}
+            groupId={monitor?.groupId ?? null}
           />
         </div>
       )}

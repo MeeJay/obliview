@@ -48,6 +48,15 @@ export function agentVersion(_req: Request, res: Response): void {
   }
 }
 
+export function desktopVersion(_req: Request, res: Response): void {
+  try {
+    const info = agentService.getDesktopVersion();
+    res.json(info);
+  } catch {
+    res.status(503).json({ error: 'Desktop version info unavailable' });
+  }
+}
+
 const ALLOWED_AGENT_BINARIES: Record<string, string> = {
   'obliview-agent.exe':             'obliview-agent.exe',
   'obliview-agent-linux-amd64':     'obliview-agent-linux-amd64',

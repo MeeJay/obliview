@@ -295,6 +295,18 @@ export function HeartbeatChart({
   }, [points]);
   const tickFormatter = useCallback((ts: number) => tickLabelMap.get(ts) ?? '', [tickLabelMap]);
 
+  // ── Y-axis domain ─────────────────────────────────────────────────────────
+  // Compute from non-null rt values only — recharts 'auto' can include null (→ 0)
+  // which forces the axis to start at 0 even when all data is e.g. 200–400 ms.
+  const yDomain = useMemo((): [number | string, number | string] => {
+    const rtVals = points.map(p => p.rt).filter((v): v is number => v !== null);
+    if (rtVals.length === 0) return ['auto', 'auto'];
+    const lo = Math.min(...rtVals);
+    const hi = Math.max(...rtVals);
+    const pad = Math.max((hi - lo) * 0.12, 5); // 12 % padding, minimum 5 ms
+    return [Math.max(0, Math.floor(lo - pad)), Math.ceil(hi + pad)];
+  }, [points]);
+
   // ── value_watcher mode (unchanged) ───────────────────────────────────────
   if (valueMode) {
     const vdata = heartbeats
@@ -416,7 +428,7 @@ export function HeartbeatChart({
             tick={{ fill: '#8b949e', fontSize: 11 }}
             stroke="#30363d"
             unit="ms"
-            domain={['auto', 'auto']}
+            domain={yDomain}
             width={60}
           />
 

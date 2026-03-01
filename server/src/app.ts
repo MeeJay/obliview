@@ -88,8 +88,10 @@ export function createApp() {
   // Desktop app downloads — serves pre-built binaries from desktop-app/dist/.
   // Whitelist prevents directory traversal; graceful 404 if a file isn't built yet.
   const DESKTOP_FILES: Record<string, string> = {
-    'Obliview.exe': 'Obliview.exe', // Windows binary
-    'Obliview.zip': 'Obliview.zip', // macOS .app bundle zipped with ditto
+    'Obliview.exe':       'Obliview.exe',       // Windows binary (portable)
+    'ObliviewSetup.msi':  'ObliviewSetup.msi',  // Windows installer (Start Menu shortcut)
+    'Obliview.zip':       'Obliview.zip',        // macOS .app bundle zipped with ditto
+    'Obliview.dmg':       'Obliview.dmg',        // macOS drag-to-Applications DMG
   };
   // __dirname = server/dist/src  →  ../../../../desktop-app/dist = project-root/desktop-app/dist
   const desktopDistDir = path.resolve(__dirname, '../../../../desktop-app/dist');
