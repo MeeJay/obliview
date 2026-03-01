@@ -15,7 +15,7 @@
   <Package
       Name="Obliview"
       Manufacturer="BinaryHearts"
-      Version="1.0.0"
+      Version="DESKTOP_VERSION_PLACEHOLDER"
       UpgradeCode="F8A2C3D4-E5B6-4789-9ABC-DEF012345678"
       Compressed="yes">
 
@@ -32,7 +32,7 @@
 
         <!-- Main component: the executable + Start Menu shortcut -->
         <Component Id="MainExecutable">
-          <File Source="Obliview.exe" KeyPath="yes">
+          <File Source="dist\Obliview.exe" KeyPath="yes">
             <Shortcut
                 Id="StartMenuShortcut"
                 Directory="ProgramMenuFolder"

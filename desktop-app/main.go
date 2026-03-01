@@ -12,7 +12,8 @@ const defaultW, defaultH = 1280, 800
 // appVersion is the desktop app version, read by the server to serve the
 // "latest desktop version" endpoint and injected into every page load so the
 // React app can detect when an update is available.
-const appVersion = "1.0.0"
+// Using var (not const) so the build script can override via -ldflags "-X main.appVersion=x.y.z".
+var appVersion = "1.0.0"
 
 // overlayJS is injected on every page load via w.Init().
 //

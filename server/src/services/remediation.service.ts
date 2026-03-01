@@ -301,7 +301,7 @@ export const remediationService = {
     if (groupId !== null) {
       type AncestorRow = { ancestor_id: number; depth: number };
       const ancestorRows = await db<AncestorRow>('group_closure')
-        .where({ descendant_id: groupId })
+        .where('descendant_id', groupId)
         .orderBy('depth', 'desc');
 
       for (const row of ancestorRows) {
@@ -376,7 +376,7 @@ export const remediationService = {
     if (groupId != null) {
       type AncestorRow = { ancestor_id: number; depth: number };
       const ancestorRows = await db<AncestorRow>('group_closure')
-        .where({ descendant_id: groupId })
+        .where('descendant_id', groupId)
         .orderBy('depth', 'desc');
       for (const row of ancestorRows) {
         const gBindings = await this.getBindings('group', row.ancestor_id);

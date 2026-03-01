@@ -43,7 +43,7 @@ export async function up(knex: Knex): Promise<void> {
     t.text('output').nullable();
     t.text('error').nullable();
     t.integer('duration_ms').nullable();
-    t.timestamptz('triggered_at').notNullable().defaultTo(knex.fn.now());
+    t.timestamp('triggered_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
     t.index(['monitor_id', 'triggered_at']);
     t.index(['action_id', 'triggered_at']);
   });
