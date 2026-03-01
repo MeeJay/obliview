@@ -17,6 +17,7 @@ import { AgentDetailPage } from '@/pages/AgentDetailPage';
 import { ProfilePage } from '@/pages/ProfilePage';
 import { GroupDetailPage } from '@/pages/GroupDetailPage';
 import { GroupEditPage } from '@/pages/GroupEditPage';
+import { DownloadPage } from '@/pages/DownloadPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<DashboardPage />} />
+            <Route path="/download" element={<DownloadPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/monitor/:id" element={<MonitorDetailPage />} />
             <Route path="/monitor/new" element={<MonitorEditPage />} />

@@ -30,5 +30,6 @@ router.post('/reorder', requireRole('admin'), groupsController.reorder);
 router.post('/:id/move', requireGroupWrite(), validate(moveGroupSchema), groupsController.move);
 router.delete('/:id', requireGroupWrite(), groupsController.delete);
 router.delete('/:id/heartbeats', requireGroupWrite(), groupsController.clearHeartbeats);
+router.patch('/:id/agent-config', requireRole('admin'), groupsController.updateAgentGroupConfig);
 
 export default router;

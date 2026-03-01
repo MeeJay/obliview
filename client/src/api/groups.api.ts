@@ -7,6 +7,8 @@ import type {
   UpdateGroupRequest,
   Heartbeat,
   Monitor,
+  AgentThresholds,
+  AgentGroupConfig,
 } from '@obliview/shared';
 
 export const groupsApi = {
@@ -90,6 +92,14 @@ export const groupsApi = {
     const res = await apiClient.get<ApiResponse<Monitor[]>>(`/groups/${id}/monitors`, {
       params: descendants ? { descendants: 'true' } : {},
     });
+    return res.data.data!;
+  },
+
+  async updateAgentGroupConfig(
+    id: number,
+    data: { agentGroupConfig?: Partial<AgentGroupConfig>; agentThresholds?: AgentThresholds },
+  ): Promise<MonitorGroup> {
+    const res = await apiClient.patch<ApiResponse<MonitorGroup>>(`/groups/${id}/agent-config`, data);
     return res.data.data!;
   },
 };

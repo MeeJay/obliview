@@ -152,6 +152,7 @@ export interface MonitorGroup {
   groupNotifications: boolean;
   kind: 'monitor' | 'agent';
   agentThresholds?: AgentThresholds | null;
+  agentGroupConfig?: AgentGroupConfig | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -380,12 +381,28 @@ export interface AgentMetricThreshold {
   op: '>' | '<' | '>=' | '<=';
 }
 
+/** Per-sensor temperature override (key = sensor label) */
+export interface AgentTempSensorOverride {
+  enabled: boolean;   // true = this sensor has its own settings (overrides global)
+  op: '>' | '<' | '>=' | '<=';
+  threshold: number;  // °C
+}
+
+/** Global temperature threshold + optional per-sensor overrides */
+export interface AgentTempThreshold {
+  globalEnabled: boolean;              // master on/off for all temp monitoring
+  op: '>' | '<' | '>=' | '<=';        // global operator
+  threshold: number;                   // global threshold in °C
+  overrides: Record<string, AgentTempSensorOverride>;  // key = sensor label
+}
+
 export interface AgentThresholds {
   cpu: AgentMetricThreshold;
   memory: AgentMetricThreshold;
   disk: AgentMetricThreshold;
   netIn: AgentMetricThreshold;
   netOut: AgentMetricThreshold;
+  temp?: AgentTempThreshold;
 }
 
 export const DEFAULT_AGENT_THRESHOLDS: AgentThresholds = {
@@ -395,7 +412,18 @@ export const DEFAULT_AGENT_THRESHOLDS: AgentThresholds = {
   // Network thresholds stored in bytes/sec; 100 Mbps = 100 × 125 000 bytes/sec
   netIn:  { enabled: false, threshold: 12_500_000, op: '>' },
   netOut: { enabled: false, threshold: 12_500_000, op: '>' },
+  temp:   { globalEnabled: false, op: '>', threshold: 85, overrides: {} },
 };
+
+/** Default group-level config for agent groups */
+export interface AgentGroupConfig {
+  /** Default push interval for agents in this group (null = device keeps its own) */
+  pushIntervalSeconds: number | null;
+  /** Default heartbeat monitoring toggle (null = device keeps its own) */
+  heartbeatMonitoring: boolean | null;
+  /** Consecutive missed pushes before declaring agent offline (null = system default of 2) */
+  maxMissedPushes: number | null;
+}
 
 // ============================================
 // Agent types

@@ -1,7 +1,12 @@
-import { LogOut, Menu } from 'lucide-react';
+import { LogOut, Menu, Download } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { useUiStore } from '@/store/uiStore';
 import { Button } from '@/components/common/Button';
+
+/** True when running inside the Obliview native desktop app (gear overlay sets this). */
+const isNativeApp = typeof window !== 'undefined' &&
+  !!(window as Window & { __obliview_is_native_app?: boolean }).__obliview_is_native_app;
 
 export function Header() {
   const { user, logout } = useAuthStore();
@@ -19,6 +24,17 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Download App link — hidden inside the native desktop app */}
+        {!isNativeApp && (
+          <Link
+            to="/download"
+            className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
+          >
+            <Download size={14} />
+            Download App
+          </Link>
+        )}
+
         {user && (
           <>
             <div className="text-sm">

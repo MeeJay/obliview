@@ -388,4 +388,33 @@ export const groupsController = {
       next(err);
     }
   },
+
+  /** PATCH /groups/:id/agent-config — update agent group config (thresholds + group settings) */
+  async updateAgentGroupConfig(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const groupId = parseInt(req.params.id, 10);
+      if (req.session.role !== 'admin') throw new AppError(403, 'Admin only');
+
+      const group = await groupService.getById(groupId);
+      if (!group) throw new AppError(404, 'Group not found');
+      if (group.kind !== 'agent') throw new AppError(400, 'Not an agent group');
+
+      const { agentGroupConfig, agentThresholds } = req.body as {
+        agentGroupConfig?: { pushIntervalSeconds?: number | null; heartbeatMonitoring?: boolean | null; maxMissedPushes?: number | null };
+        agentThresholds?: unknown;
+      };
+
+      let updated = group;
+      if (agentGroupConfig !== undefined) {
+        updated = (await groupService.updateAgentGroupConfig(groupId, agentGroupConfig)) ?? updated;
+      }
+      if (agentThresholds !== undefined) {
+        updated = (await groupService.updateAgentThresholds(groupId, agentThresholds as any)) ?? updated;
+      }
+
+      res.json({ success: true, data: updated });
+    } catch (err) {
+      next(err);
+    }
+  },
 };

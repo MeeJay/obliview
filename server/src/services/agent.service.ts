@@ -527,6 +527,41 @@ export const agentService = {
       }
     }
 
+    // Temperature thresholds: global + per-sensor overrides
+    if (thresholds.temp?.globalEnabled) {
+      const tempT = thresholds.temp;
+      // Gather all sensors: regular temps + GPU temps
+      const sensors: Array<{ key: string; label: string; celsius: number }> = [];
+      if (m.temps) {
+        for (const s of m.temps) {
+          sensors.push({ key: `temp:${s.label}`, label: s.label, celsius: s.celsius });
+        }
+      }
+      if (m.gpus) {
+        m.gpus.forEach((gpu, i) => {
+          if (gpu.tempCelsius !== undefined) {
+            sensors.push({
+              key: `gpu:${i}:${gpu.model}`,
+              label: `GPU ${i} – ${gpu.model}`,
+              celsius: gpu.tempCelsius,
+            });
+          }
+        });
+      }
+      for (const sensor of sensors) {
+        const override = tempT.overrides[sensor.key];
+        // Per-sensor override active → use its settings; otherwise fall back to global
+        const active = override?.enabled
+          ? { op: override.op, threshold: override.threshold }
+          : { op: tempT.op, threshold: tempT.threshold };
+        if (this._isThresholdExceeded(sensor.celsius, active)) {
+          violations.push(
+            `Temp ${sensor.label}: ${sensor.celsius.toFixed(1)}°C ${active.op} ${active.threshold}°C`,
+          );
+        }
+      }
+    }
+
     const overallStatus: 'up' | 'alert' = violations.length > 0 ? 'alert' : 'up';
     const message = violations.length > 0 ? violations.join('; ') : 'All metrics OK';
 

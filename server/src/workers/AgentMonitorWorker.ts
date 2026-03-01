@@ -22,11 +22,14 @@ export class AgentMonitorWorker extends BaseMonitorWorker {
     // from every code path (offline watchdog, normal push, device state changes).
     let result: CheckResult;
 
-    // Fetch device for status + check interval + heartbeat_monitoring
+    // Fetch device for status + check interval + heartbeat_monitoring + max_missed_pushes
     const device = await db('agent_devices')
       .where({ id: agentDeviceId })
-      .select('check_interval_seconds', 'status', 'heartbeat_monitoring')
-      .first() as { check_interval_seconds: number; status: string; heartbeat_monitoring: boolean } | undefined;
+      .select('check_interval_seconds', 'status', 'heartbeat_monitoring', 'group_id', 'agent_max_missed_pushes')
+      .first() as {
+        check_interval_seconds: number; status: string; heartbeat_monitoring: boolean;
+        group_id: number | null; agent_max_missed_pushes: number | null;
+      } | undefined;
 
     if (!device) {
       result = { status: 'down', message: 'Agent device not found' };
@@ -39,7 +42,21 @@ export class AgentMonitorWorker extends BaseMonitorWorker {
     } else {
       // Check for a recent push
       const snapshot = agentPushData.get(agentDeviceId);
-      const maxStaleMs = device.check_interval_seconds * 2 * 1000;
+
+      // Resolve maxMissedPushes: device > group > system default (2)
+      let maxMissedPushes = device.agent_max_missed_pushes ?? null;
+      if (maxMissedPushes === null && device.group_id !== null) {
+        const groupRow = await db('monitor_groups')
+          .where({ id: device.group_id })
+          .select('agent_group_config')
+          .first() as { agent_group_config: { maxMissedPushes?: number | null } | string | null } | undefined;
+        const cfg = typeof groupRow?.agent_group_config === 'string'
+          ? JSON.parse(groupRow.agent_group_config)
+          : groupRow?.agent_group_config;
+        maxMissedPushes = cfg?.maxMissedPushes ?? null;
+      }
+      const effectiveMaxMissed = maxMissedPushes ?? 2;
+      const maxStaleMs = device.check_interval_seconds * effectiveMaxMissed * 1000;
 
       if (!snapshot) {
         // No push received yet

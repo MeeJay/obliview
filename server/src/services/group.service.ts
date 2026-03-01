@@ -1,5 +1,5 @@
 import { db } from '../db';
-import type { MonitorGroup, GroupTreeNode } from '@obliview/shared';
+import type { MonitorGroup, GroupTreeNode, AgentThresholds, AgentGroupConfig } from '@obliview/shared';
 
 interface GroupRow {
   id: number;
@@ -11,6 +11,8 @@ interface GroupRow {
   is_general: boolean;
   group_notifications: boolean;
   kind: string;
+  agent_thresholds?: AgentThresholds | null;
+  agent_group_config?: AgentGroupConfig | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -26,6 +28,12 @@ function rowToGroup(row: GroupRow): MonitorGroup {
     isGeneral: row.is_general,
     groupNotifications: row.group_notifications,
     kind: (row.kind as MonitorGroup['kind']) || 'monitor',
+    agentThresholds: row.agent_thresholds
+      ? (typeof row.agent_thresholds === 'string' ? JSON.parse(row.agent_thresholds) : row.agent_thresholds)
+      : null,
+    agentGroupConfig: row.agent_group_config
+      ? (typeof row.agent_group_config === 'string' ? JSON.parse(row.agent_group_config) : row.agent_group_config)
+      : null,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -267,6 +275,36 @@ export const groupService = {
       .where('monitor_groups.group_notifications', true)
       .orderBy('group_closure.depth', 'asc')
       .first('monitor_groups.*');
+    return row ? rowToGroup(row) : null;
+  },
+
+  /** Update the default thresholds for an agent group */
+  async updateAgentThresholds(id: number, thresholds: AgentThresholds): Promise<MonitorGroup | null> {
+    const [row] = await (db<GroupRow>('monitor_groups')
+      .where({ id })
+      .update({ agent_thresholds: JSON.stringify(thresholds), updated_at: new Date() } as Record<string, unknown>)
+      .returning('*') as Promise<GroupRow[]>);
+    return row ? rowToGroup(row) : null;
+  },
+
+  /** Update the agent-group config (push interval, heartbeat monitoring, max missed pushes) */
+  async updateAgentGroupConfig(id: number, config: Partial<AgentGroupConfig>): Promise<MonitorGroup | null> {
+    // Merge with existing config
+    const existing = await db('monitor_groups').where({ id }).select('agent_group_config').first() as
+      { agent_group_config: AgentGroupConfig | null } | undefined;
+    const merged: AgentGroupConfig = {
+      pushIntervalSeconds: null,
+      heartbeatMonitoring: null,
+      maxMissedPushes: null,
+      ...(typeof existing?.agent_group_config === 'string'
+        ? JSON.parse(existing.agent_group_config)
+        : (existing?.agent_group_config ?? {})),
+      ...config,
+    };
+    const [row] = await (db<GroupRow>('monitor_groups')
+      .where({ id })
+      .update({ agent_group_config: JSON.stringify(merged), updated_at: new Date() } as Record<string, unknown>)
+      .returning('*') as Promise<GroupRow[]>);
     return row ? rowToGroup(row) : null;
   },
 };

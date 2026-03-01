@@ -4,10 +4,10 @@ import {
   ArrowLeft, RefreshCw, Settings2, Cpu, HardDrive,
   Network, Activity, Server, AlertTriangle, Wind, Thermometer,
   MonitorDot, ArrowDownToLine, ArrowUpFromLine,
-  Pencil, Check, X, Timer, LayoutDashboard,
-  MemoryStick, Settings, Wifi,
+  Pencil, Check, X, LayoutDashboard,
+  MemoryStick, Wifi,
 } from 'lucide-react';
-import type { AgentDevice, AgentThresholds, AgentMetricThreshold } from '@obliview/shared';
+import type { AgentDevice, AgentThresholds, AgentMetricThreshold, AgentTempThreshold } from '@obliview/shared';
 import { DEFAULT_AGENT_THRESHOLDS } from '@obliview/shared';
 import { agentApi } from '../api/agent.api';
 import { monitorsApi } from '../api/monitors.api';
@@ -1282,71 +1282,119 @@ function TempsView({ history, period }: { history: AgentPushSnapshot[]; period: 
 // Threshold Editor Modal
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Toggle switch helper ──────────────────────────────────────────────────────
+function Switch({ on, onChange, disabled = false }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={() => !disabled && onChange(!on)}
+      disabled={disabled}
+      className={cn(
+        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
+        on ? 'bg-accent' : 'bg-bg-tertiary border border-border',
+        disabled && 'opacity-40 cursor-not-allowed',
+      )}
+    >
+      <span className={cn('inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform',
+        on ? 'translate-x-4' : 'translate-x-0.5')} />
+    </button>
+  );
+}
+
 function ThresholdEditor({
-  thresholds, onSave, onClose,
-}: { thresholds: AgentThresholds; onSave: (t: AgentThresholds) => Promise<void>; onClose: () => void }) {
+  thresholds, onSave, onClose, knownSensors = [],
+}: {
+  thresholds: AgentThresholds;
+  onSave: (t: AgentThresholds) => Promise<void>;
+  onClose: () => void;
+  knownSensors?: Array<{ key: string; label: string }>;
+}) {
   const [values, setValues] = useState<AgentThresholds>({ ...thresholds });
+  const [tempValues, setTempValues] = useState<AgentTempThreshold>(() => ({
+    globalEnabled: false, op: '>', threshold: 85, overrides: {},
+    ...(thresholds.temp ?? {}),
+  }));
   const [saving, setSaving] = useState(false);
-  const upd = (key: keyof AgentThresholds, field: keyof AgentMetricThreshold, value: unknown) =>
+
+  const upd = (key: keyof Omit<AgentThresholds, 'temp'>, field: keyof AgentMetricThreshold, value: unknown) =>
     setValues(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }));
+
+  const updTemp = (field: keyof AgentTempThreshold, value: unknown) =>
+    setTempValues(prev => ({ ...prev, [field]: value }));
+
+  const updTempOverride = (sensorKey: string, field: 'enabled' | 'op' | 'threshold', value: unknown) =>
+    setTempValues(prev => {
+      const existing = prev.overrides[sensorKey] ?? { enabled: false, op: '>' as const, threshold: 85 };
+      return {
+        ...prev,
+        overrides: {
+          ...prev.overrides,
+          [sensorKey]: { ...existing, [field]: value },
+        },
+      };
+    });
+
   const handleSave = async () => {
     setSaving(true);
-    try { await onSave(values); onClose(); } finally { setSaving(false); }
+    try {
+      await onSave({ ...values, temp: tempValues });
+      onClose();
+    } finally { setSaving(false); }
   };
-  // scale: multiply display value by this factor to get the stored bytes/sec value
-  // (1 Mbps = 125 000 bytes/sec)
+
   const BYTES_PER_MBIT = 125_000;
-  const rows: Array<{ key: keyof AgentThresholds; label: string; unit: string; scale?: number }> = [
+  const rows: Array<{ key: keyof Omit<AgentThresholds, 'temp'>; label: string; unit: string; scale?: number }> = [
     { key: 'cpu',    label: 'CPU',        unit: '%' },
     { key: 'memory', label: 'Memory',     unit: '%' },
     { key: 'disk',   label: 'Disk (any)', unit: '%' },
     { key: 'netIn',  label: 'Net In',     unit: 'Mbps', scale: BYTES_PER_MBIT },
     { key: 'netOut', label: 'Net Out',    unit: 'Mbps', scale: BYTES_PER_MBIT },
   ];
+
+  const OPS = ['>', '>=', '<', '<='] as const;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg rounded-xl border border-border bg-bg-primary shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+      <div className="w-full max-w-lg rounded-xl border border-border bg-bg-primary shadow-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <h2 className="text-base font-semibold text-text-primary flex items-center gap-2">
             <Settings2 size={16} /> Alert Thresholds
           </h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
-        <div className="p-5">
+        <div className="overflow-y-auto flex-1 p-5 space-y-5">
+
+          {/* ── Standard metrics ── */}
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs uppercase text-text-muted border-b border-border">
                 <th className="text-left pb-2 font-medium">Metric</th>
-                <th className="text-center pb-2 font-medium">On</th>
-                <th className="text-center pb-2 font-medium">Op</th>
+                <th className="text-center pb-2 font-medium w-12">On</th>
+                <th className="text-center pb-2 font-medium w-16">Op</th>
                 <th className="text-left pb-2 font-medium">Value</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {rows.map(({ key, label, unit, scale }) => (
-                <tr key={key}>
+                <tr key={key} className={values[key].enabled ? '' : 'opacity-50'}>
                   <td className="py-2.5 font-medium text-text-secondary">{label}</td>
                   <td className="py-2.5 text-center">
-                    <input type="checkbox" checked={values[key].enabled}
-                      onChange={e => upd(key, 'enabled', e.target.checked)}
-                      className="h-4 w-4 rounded border-border bg-bg-tertiary text-accent" />
+                    <Switch on={values[key].enabled} onChange={v => upd(key, 'enabled', v)} />
                   </td>
                   <td className="py-2.5 text-center">
                     <select value={values[key].op} onChange={e => upd(key, 'op', e.target.value)}
                       disabled={!values[key].enabled}
                       className="text-xs border border-border rounded bg-bg-tertiary text-text-primary px-1.5 py-1 disabled:opacity-40">
-                      {['>', '>=', '<', '<='].map(o => <option key={o} value={o}>{o}</option>)}
+                      {OPS.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
                   </td>
                   <td className="py-2.5">
                     <div className="flex items-center gap-1.5">
-                      <input
-                        type="number"
+                      <input type="number"
                         value={scale ? Math.round(values[key].threshold / scale) : values[key].threshold}
                         onChange={e => upd(key, 'threshold', scale
                           ? Math.round(Number(e.target.value) * scale)
-                          : Number(e.target.value)
-                        )}
+                          : Number(e.target.value))}
                         disabled={!values[key].enabled} min={0}
                         className="w-24 text-xs border border-border rounded bg-bg-tertiary text-text-primary px-2 py-1 disabled:opacity-40" />
                       <span className="text-xs text-text-muted">{unit}</span>
@@ -1356,8 +1404,95 @@ function ThresholdEditor({
               ))}
             </tbody>
           </table>
+
+          {/* ── Temperature thresholds ── */}
+          <div>
+            <div className="text-xs font-medium text-text-muted uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <Thermometer size={11} /> Temperatures
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs uppercase text-text-muted border-b border-border">
+                  <th className="text-left pb-2 font-medium">Sensor</th>
+                  <th className="text-center pb-2 font-medium w-12">On</th>
+                  <th className="text-center pb-2 font-medium w-16">Op</th>
+                  <th className="text-left pb-2 font-medium">Value</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {/* Global row */}
+                <tr className={tempValues.globalEnabled ? '' : 'opacity-50'}>
+                  <td className="py-2.5 font-medium text-text-secondary">All sensors (global)</td>
+                  <td className="py-2.5 text-center">
+                    <Switch on={tempValues.globalEnabled} onChange={v => updTemp('globalEnabled', v)} />
+                  </td>
+                  <td className="py-2.5 text-center">
+                    <select value={tempValues.op}
+                      onChange={e => updTemp('op', e.target.value)}
+                      disabled={!tempValues.globalEnabled}
+                      className="text-xs border border-border rounded bg-bg-tertiary text-text-primary px-1.5 py-1 disabled:opacity-40">
+                      {OPS.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </td>
+                  <td className="py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <input type="number" value={tempValues.threshold}
+                        onChange={e => updTemp('threshold', Number(e.target.value))}
+                        disabled={!tempValues.globalEnabled} min={0} max={200}
+                        className="w-24 text-xs border border-border rounded bg-bg-tertiary text-text-primary px-2 py-1 disabled:opacity-40" />
+                      <span className="text-xs text-text-muted">°C</span>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* Per-sensor override rows */}
+                {knownSensors.map(sensor => {
+                  const ov = tempValues.overrides[sensor.key];
+                  const isOverriding = ov?.enabled ?? false;
+                  // Row disabled if global is OFF, or if global is ON but override switch is OFF
+                  const rowDisabled = !tempValues.globalEnabled;
+                  const fieldDisabled = !tempValues.globalEnabled || !isOverriding;
+                  return (
+                    <tr key={sensor.key} className={rowDisabled ? 'opacity-35' : isOverriding ? '' : 'opacity-60'}>
+                      <td className="py-2 pl-4 text-xs text-text-muted">
+                        <span className="text-text-muted">↳</span> {sensor.label}
+                      </td>
+                      <td className="py-2 text-center">
+                        {/* Override switch: greyed if global OFF */}
+                        <Switch
+                          on={isOverriding}
+                          onChange={v => updTempOverride(sensor.key, 'enabled', v)}
+                          disabled={rowDisabled}
+                        />
+                      </td>
+                      <td className="py-2 text-center">
+                        <select
+                          value={ov?.op ?? tempValues.op}
+                          onChange={e => updTempOverride(sensor.key, 'op', e.target.value)}
+                          disabled={fieldDisabled}
+                          className="text-xs border border-border rounded bg-bg-tertiary text-text-primary px-1.5 py-1 disabled:opacity-40">
+                          {OPS.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </td>
+                      <td className="py-2">
+                        <div className="flex items-center gap-1.5">
+                          <input type="number"
+                            value={isOverriding ? (ov?.threshold ?? tempValues.threshold) : tempValues.threshold}
+                            onChange={e => updTempOverride(sensor.key, 'threshold', Number(e.target.value))}
+                            disabled={fieldDisabled} min={0} max={200}
+                            className="w-24 text-xs border border-border rounded bg-bg-tertiary text-text-primary px-2 py-1 disabled:opacity-40" />
+                          <span className="text-xs text-text-muted">°C</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
+
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
           <button onClick={onClose}
             className="px-4 py-2 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover transition-colors">
             Cancel
@@ -1373,79 +1508,107 @@ function ThresholdEditor({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Agent Edit Modal
+// Agent Settings Section (inline panel at bottom of detail page)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AgentEditModal({
-  device, onSave, onClose,
-}: { device: AgentDevice; onSave: (updated: AgentDevice) => void; onClose: () => void }) {
-  const [name, setName] = useState(device.name ?? '');
+function AgentSettingsSection({
+  device, thresholds, knownSensors,
+  onDeviceUpdate, onThresholdsUpdate,
+}: {
+  device: AgentDevice;
+  thresholds: AgentThresholds;
+  knownSensors: Array<{ key: string; label: string }>;
+  onDeviceUpdate: (d: AgentDevice) => void;
+  onThresholdsUpdate: (t: AgentThresholds) => void;
+}) {
   const [interval, setIntervalVal] = useState(device.checkIntervalSeconds ?? 60);
   const [heartbeat, setHeartbeat] = useState(device.heartbeatMonitoring ?? true);
   const [saving, setSaving] = useState(false);
+  const [showThresholdModal, setShowThresholdModal] = useState(false);
+
+  // Sync when device changes from outside
+  useEffect(() => { setIntervalVal(device.checkIntervalSeconds ?? 60); }, [device.checkIntervalSeconds]);
+  useEffect(() => { setHeartbeat(device.heartbeatMonitoring ?? true); }, [device.heartbeatMonitoring]);
+
   const handleSave = async () => {
     setSaving(true);
     try {
       const updated = await agentApi.updateDevice(device.id, {
-        name: name.trim() || null,
         checkIntervalSeconds: Math.max(1, Math.min(86400, interval)),
         heartbeatMonitoring: heartbeat,
       });
-      onSave(updated);
-      onClose();
+      onDeviceUpdate(updated);
     } catch { /* ignore */ }
     finally { setSaving(false); }
   };
+
+  const handleSaveThresholds = async (t: AgentThresholds) => {
+    await agentApi.updateDeviceThresholds(device.id, t);
+    onThresholdsUpdate(t);
+  };
+
+  const dirty = interval !== (device.checkIntervalSeconds ?? 60) || heartbeat !== (device.heartbeatMonitoring ?? true);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-xl border border-border bg-bg-primary shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-base font-semibold text-text-primary flex items-center gap-2">
-            <Settings size={16} /> Agent Settings
-          </h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+    <div className="rounded-xl border border-border bg-bg-secondary p-5">
+      <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-4 flex items-center gap-1.5">
+        <Settings2 size={12} /> Agent Settings
+      </h3>
+      <div className="space-y-4">
+        {/* Push Interval */}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium text-text-primary">Push Interval</div>
+            <div className="text-xs text-text-muted">How often the agent sends data</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="number" value={interval} min={1} max={86400}
+              onChange={e => setIntervalVal(Number(e.target.value))}
+              className="w-24 rounded-lg border border-border bg-bg-tertiary px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-accent text-right" />
+            <span className="text-xs text-text-muted">s</span>
+          </div>
         </div>
-        <div className="p-5 space-y-4">
+
+        {/* Heartbeat Monitoring */}
+        <div className="flex items-center justify-between">
           <div>
-            <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">Display Name</label>
-            <input type="text" value={name} onChange={e => setName(e.target.value)}
-              placeholder={device.hostname}
-              className="w-full rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-accent placeholder:text-text-muted" />
-            <p className="text-xs text-text-muted mt-1">Leave empty to use hostname as title.</p>
+            <div className="text-sm font-medium text-text-primary">Heartbeat Monitoring</div>
+            <div className="text-xs text-text-muted">Alert when agent goes offline</div>
           </div>
+          <Switch on={heartbeat} onChange={setHeartbeat} />
+        </div>
+
+        {/* Alert Thresholds */}
+        <div className="flex items-center justify-between">
           <div>
-            <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">Push Interval (seconds)</label>
-            <input type="number" value={interval} onChange={e => setIntervalVal(Number(e.target.value))}
-              min={1} max={86400}
-              className="w-full rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-accent" />
+            <div className="text-sm font-medium text-text-primary">Alert Thresholds</div>
+            <div className="text-xs text-text-muted">CPU, RAM, disk, network, temperature limits</div>
           </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-text-primary">Heartbeat Monitoring</div>
-              <div className="text-xs text-text-muted">Alert when agent goes offline</div>
-            </div>
-            <button
-              onClick={() => setHeartbeat(v => !v)}
-              className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                heartbeat ? 'bg-accent' : 'bg-bg-tertiary border border-border',
-              )}
-            >
-              <span className={cn('inline-block h-4 w-4 rounded-full bg-white shadow transition-transform', heartbeat ? 'translate-x-6' : 'translate-x-1')} />
+          <button onClick={() => setShowThresholdModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors">
+            <Settings2 size={12} /> Configure
+          </button>
+        </div>
+
+        {/* Save button */}
+        {dirty && (
+          <div className="flex justify-end pt-1">
+            <button onClick={handleSave} disabled={saving}
+              className="px-4 py-2 text-sm rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-60 transition-colors">
+              {saving ? 'Saving…' : 'Save Settings'}
             </button>
           </div>
-        </div>
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
-          <button onClick={onClose}
-            className="px-4 py-2 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover transition-colors">
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={saving}
-            className="px-4 py-2 text-sm rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-60 transition-colors">
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+        )}
       </div>
+
+      {showThresholdModal && (
+        <ThresholdEditor
+          thresholds={thresholds}
+          onSave={handleSaveThresholds}
+          onClose={() => setShowThresholdModal(false)}
+          knownSensors={knownSensors}
+        />
+      )}
     </div>
   );
 }
@@ -1473,22 +1636,21 @@ export function AgentDetailPage() {
   const [snapshot, setSnapshot] = useState<AgentPushSnapshot | null>(null);
   const [history, setHistory] = useState<AgentPushSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showThresholds, setShowThresholds] = useState(false);
   const [thresholds, setThresholds] = useState<AgentThresholds>(DEFAULT_AGENT_THRESHOLDS);
   const [lastPush, setLastPush] = useState<string | null>(null);
-  const [editingInterval, setEditingInterval] = useState(false);
-  const [intervalValue, setIntervalValue] = useState(60);
-  const [savingInterval, setSavingInterval] = useState(false);
   const [period, setPeriod] = useState<'realtime' | '1h' | '24h'>('realtime');
   const [historicalData, setHistoricalData] = useState<AgentPushSnapshot[] | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
+  // Inline display name editing
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
       const [dev, snap] = await Promise.all([agentApi.getDeviceById(id), agentApi.getDeviceMetrics(id)]);
       setDevice(dev);
-      if (dev) setIntervalValue(dev.checkIntervalSeconds ?? 60);
+      // (push interval is now managed by AgentSettingsSection)
       if (snap) {
         setSnapshot(snap);
         setLastPush(snap.receivedAt);
@@ -1574,21 +1736,14 @@ export function AgentDetailPage() {
       .finally(() => setLoadingHistory(false));
   }, [period, snapshot?.monitorId]);
 
-  const handleSaveThresholds = async (t: AgentThresholds) => {
-    await agentApi.updateDeviceThresholds(id, t);
-    setThresholds(t);
-  };
-
-  const handleSaveInterval = async () => {
-    const v = Math.max(1, Math.min(86400, intervalValue));
-    setSavingInterval(true);
+  const handleSaveName = async () => {
+    setSavingName(true);
     try {
-      const updated = await agentApi.updateDevice(id, { checkIntervalSeconds: v });
-      setDevice(updated);
-      setIntervalValue(updated.checkIntervalSeconds ?? v);
-      setEditingInterval(false);
+      const updated = await agentApi.updateDevice(id, { name: nameValue.trim() || null });
+      if (updated) setDevice(updated);
+      setEditingName(false);
     } catch { /* ignore */ }
-    finally { setSavingInterval(false); }
+    finally { setSavingName(false); }
   };
 
   // ── Loading / not found ──────────────────────────────────────────────────
@@ -1623,6 +1778,16 @@ export function AgentDetailPage() {
   // Data source for all chart tabs — realtime uses in-memory history, 1h/24h use fetched data
   const displayData: AgentPushSnapshot[] = period === 'realtime' ? history : (historicalData ?? history);
 
+  // Known temperature sensors (for ThresholdEditor sensor overrides)
+  const knownSensors: Array<{ key: string; label: string }> = [
+    ...(m?.temps ?? []).map(s => ({ key: `temp:${s.label}`, label: s.label })),
+    ...(m?.gpus ?? []).flatMap((gpu, i) =>
+      gpu.tempCelsius !== undefined
+        ? [{ key: `gpu:${i}:${gpu.model}`, label: `GPU ${i} – ${gpu.model}` }]
+        : [],
+    ),
+  ];
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -1639,13 +1804,41 @@ export function AgentDetailPage() {
               <ArrowLeft size={18} />
             </button>
             <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-xl font-bold text-text-primary">{device.name ?? device.hostname}</h1>
+              {/* Display name with inline pencil edit */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {!editingName ? (
+                  <>
+                    <h1 className="text-xl font-bold text-text-primary">{device.name ?? device.hostname}</h1>
+                    <button
+                      onClick={() => { setNameValue(device.name ?? ''); setEditingName(true); }}
+                      className="p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+                      title="Edit display name">
+                      <Pencil size={13} />
+                    </button>
+                  </>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    <input type="text" value={nameValue} autoFocus
+                      onChange={e => setNameValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') void handleSaveName(); if (e.key === 'Escape') setEditingName(false); }}
+                      placeholder={device.hostname}
+                      className="rounded border border-border bg-bg-tertiary px-2 py-0.5 text-base font-bold text-text-primary focus:outline-none focus:ring-1 focus:ring-accent placeholder:text-text-muted" />
+                    <button onClick={() => void handleSaveName()} disabled={savingName}
+                      className="p-0.5 rounded text-status-up hover:bg-bg-hover transition-colors disabled:opacity-50" title="Save">
+                      <Check size={13} />
+                    </button>
+                    <button onClick={() => setEditingName(false)}
+                      className="p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors" title="Cancel">
+                      <X size={13} />
+                    </button>
+                  </span>
+                )}
                 <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${sc.text}`}>
                   <span className={`inline-block w-2.5 h-2.5 rounded-full ${sc.dot} ${sc.glow}`} />
                   {sc.label}
                 </span>
               </div>
+              {/* Subtitle: system info */}
               <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-1 text-xs text-text-muted">
                 {device.name         && <span className="font-mono">{device.hostname}</span>}
                 {device.ip           && <span>{device.ip}</span>}
@@ -1654,34 +1847,6 @@ export function AgentDetailPage() {
                 {device.agentVersion && <span>Agent v{device.agentVersion}</span>}
                 {lastPush            && <span>Last push: {fmtRelTime(lastPush)}</span>}
                 {!snapshot           && <span className="text-yellow-400">Waiting for first push…</span>}
-                {/* Interval editor */}
-                {!editingInterval ? (
-                  <span className="flex items-center gap-1">
-                    <Timer size={11} />
-                    {device.checkIntervalSeconds ?? 60}s
-                    <button onClick={() => { setIntervalValue(device.checkIntervalSeconds ?? 60); setEditingInterval(true); }}
-                      className="ml-0.5 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors" title="Change push interval">
-                      <Pencil size={11} />
-                    </button>
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1">
-                    <Timer size={11} />
-                    <input type="number" value={intervalValue} min={1} max={86400} autoFocus
-                      onChange={e => setIntervalValue(Number(e.target.value))}
-                      onKeyDown={e => { if (e.key === 'Enter') void handleSaveInterval(); if (e.key === 'Escape') setEditingInterval(false); }}
-                      className="w-16 rounded border border-border bg-bg-tertiary px-1.5 py-0.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-accent" />
-                    <span>s</span>
-                    <button onClick={() => void handleSaveInterval()} disabled={savingInterval}
-                      className="p-0.5 rounded text-status-up hover:bg-bg-hover transition-colors disabled:opacity-50" title="Save">
-                      <Check size={13} />
-                    </button>
-                    <button onClick={() => setEditingInterval(false)}
-                      className="p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors" title="Cancel">
-                      <X size={13} />
-                    </button>
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -1703,18 +1868,9 @@ export function AgentDetailPage() {
             {loadingHistory && (
               <span className="text-xs text-text-muted animate-pulse">Loading…</span>
             )}
-            {/* Edit agent settings */}
-            <button onClick={() => setShowEdit(true)}
-              className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors" title="Edit agent settings">
-              <Settings size={15} />
-            </button>
             <button onClick={() => void loadData()}
               className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors" title="Refresh">
               <RefreshCw size={15} />
-            </button>
-            <button onClick={() => setShowThresholds(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors">
-              <Settings2 size={14} /> Thresholds
             </button>
           </div>
         </div>
@@ -1743,6 +1899,15 @@ export function AgentDetailPage() {
         {view === 'others' && <OthersView history={displayData} period={period} />}
         {view === 'temps'  && <TempsView  history={displayData} period={period} />}
 
+        {/* ── Agent Settings Section ── */}
+        <AgentSettingsSection
+          device={device}
+          thresholds={thresholds}
+          knownSensors={knownSensors}
+          onDeviceUpdate={setDevice}
+          onThresholdsUpdate={setThresholds}
+        />
+
       </div>
 
       {/* ── Right mini navigation sidebar ──
@@ -1768,20 +1933,6 @@ export function AgentDetailPage() {
           ))}
         </nav>
       </div>
-
-      {/* Threshold editor */}
-      {showThresholds && (
-        <ThresholdEditor thresholds={thresholds} onSave={handleSaveThresholds} onClose={() => setShowThresholds(false)} />
-      )}
-
-      {/* Agent edit modal */}
-      {showEdit && device && (
-        <AgentEditModal
-          device={device}
-          onSave={updated => setDevice(updated)}
-          onClose={() => setShowEdit(false)}
-        />
-      )}
     </div>
   );
 }
