@@ -19,6 +19,7 @@ import { Input } from '@/components/common/Input';
 import { GroupPicker } from '@/components/common/GroupPicker';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { NotificationBindingsPanel } from '@/components/notifications/NotificationBindingsPanel';
+import { MaintenanceWindowList } from '@/components/maintenance/MaintenanceWindowList';
 import { cn } from '@/utils/cn';
 import toast from 'react-hot-toast';
 
@@ -422,6 +423,21 @@ export function GroupManagePage() {
             scope="group"
             scopeId={editingId}
             title={`Notifications for "${form.name}"`}
+          />
+        </div>
+      )}
+
+      {/* Maintenance Windows (when editing an existing group) */}
+      {showForm && editingId && (
+        <div className="mb-6 rounded-lg border border-border bg-bg-secondary p-4">
+          <MaintenanceWindowList
+            scopeType="group"
+            scopeId={editingId}
+            scopeOptions={[{ id: editingId, name: form.name, type: 'group' }]}
+            channels={[]}
+            defaultScopeType="group"
+            defaultScopeId={editingId}
+            title={`Maintenance for "${form.name}"`}
           />
         </div>
       )}

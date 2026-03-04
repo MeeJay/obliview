@@ -7,6 +7,7 @@ import { teamService } from '../services/team.service';
 import { MonitorWorkerManager } from '../workers/MonitorWorkerManager';
 import { AppError } from '../middleware/errorHandler';
 import type { CreateMonitorInput, BulkUpdateInput } from '../validators/monitor.schema';
+import { maintenanceService } from '../services/maintenance.service';
 
 export const monitorsController = {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -21,7 +22,16 @@ export const monitorsController = {
         monitors = await monitorService.getByIds(visibleIds);
       }
 
-      res.json({ success: true, data: monitors });
+      // Batch-resolve maintenance state for all monitors (single DB round-trip)
+      const inMaintenanceIds = await maintenanceService.getInMaintenanceMonitorIds(
+        monitors.map((m) => ({ id: m.id, groupId: m.groupId })),
+      );
+      const enriched = monitors.map((m) => ({
+        ...m,
+        inMaintenance: inMaintenanceIds.has(m.id),
+      }));
+
+      res.json({ success: true, data: enriched });
     } catch (err) {
       next(err);
     }

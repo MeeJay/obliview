@@ -16,7 +16,8 @@ import { PeriodSelector } from '@/components/common/PeriodSelector';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { NotificationBindingsPanel } from '@/components/notifications/NotificationBindingsPanel';
 import { RemediationBindingsPanel } from '@/components/remediation/RemediationBindingsPanel';
-import type { Heartbeat } from '@obliview/shared';
+import { MaintenanceWindowList } from '@/components/maintenance/MaintenanceWindowList';
+import type { Heartbeat, NotificationChannel } from '@obliview/shared';
 import toast from 'react-hot-toast';
 
 export function MonitorDetailPage() {
@@ -32,6 +33,8 @@ export function MonitorDetailPage() {
   const canWrite = monitor ? canWriteMonitor(monitorId, monitor.groupId ?? null) : false;
   const [loading, setLoading] = useState(!monitor);
   const [period, setPeriod] = useState('24h');
+  const [maintenanceScopeOptions, setMaintenanceScopeOptions] = useState<Array<{ id: number; name: string; type: 'monitor' | 'agent' | 'group' }>>([]);
+  const [maintenanceChannels, setMaintenanceChannels] = useState<NotificationChannel[]>([]);
   const [periodHeartbeats, setPeriodHeartbeats] = useState<Heartbeat[]>([]);
   const [zoomRange, setZoomRange] = useState<{ from: Date; to: Date } | null>(null);
   const [zoomHeartbeats, setZoomHeartbeats] = useState<Heartbeat[]>([]);
@@ -50,6 +53,18 @@ export function MonitorDetailPage() {
     }
     loadData();
   }, [monitorId, setHeartbeats]);
+
+  // Fetch maintenance scope options + channels (admin only)
+  useEffect(() => {
+    if (!isAdmin()) return;
+    Promise.all([
+      fetch('/api/monitors').then((r) => r.json()),
+      fetch('/api/notifications/channels').then((r) => r.json()),
+    ]).then(([mon, ch]) => {
+      if (mon.success) setMaintenanceScopeOptions(mon.data.map((m: { id: number; name: string }) => ({ id: m.id, name: m.name, type: 'monitor' as const })));
+      if (ch.success) setMaintenanceChannels(ch.data);
+    }).catch(() => {});
+  }, [isAdmin]);
 
   // Fetch heartbeats by period for chart/bar display
   useEffect(() => {
@@ -369,6 +384,20 @@ export function MonitorDetailPage() {
             scope="monitor"
             scopeId={monitorId}
             groupId={monitor?.groupId ?? null}
+          />
+        </div>
+      )}
+
+      {/* Maintenance Windows (admin only) */}
+      {isAdmin() && (
+        <div className="mt-4 rounded-lg border border-border bg-bg-secondary p-4">
+          <MaintenanceWindowList
+            scopeType="monitor"
+            scopeId={monitorId}
+            scopeOptions={maintenanceScopeOptions}
+            channels={maintenanceChannels}
+            defaultScopeType="monitor"
+            defaultScopeId={monitorId}
           />
         </div>
       )}

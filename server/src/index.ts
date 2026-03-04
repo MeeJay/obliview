@@ -9,6 +9,7 @@ import { authService } from './services/auth.service';
 import { MonitorWorkerManager } from './workers/MonitorWorkerManager';
 import { heartbeatService } from './services/heartbeat.service';
 import { setAgentServiceIO, agentService } from './services/agent.service';
+import { maintenanceService } from './services/maintenance.service';
 
 async function main() {
   // 1. Run pending migrations
@@ -36,6 +37,9 @@ async function main() {
 
   // Provide io to agent service for real-time push events
   setAgentServiceIO(io);
+
+  // Start maintenance background jobs (cleanup + transition notifications)
+  maintenanceService.startJobs();
 
   // 6. Start monitor workers
   const workerManager = MonitorWorkerManager.getInstance(io);
@@ -78,6 +82,7 @@ async function main() {
     logger.info(`Received ${signal}, shutting down...`);
     clearInterval(retentionTimer);
     clearInterval(agentCleanupTimer);
+    maintenanceService.stopJobs();
     await workerManager.stopAll();
     server.close();
     await db.destroy();

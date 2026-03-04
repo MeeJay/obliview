@@ -91,6 +91,11 @@ export function MonitorCard({
             <span className="truncate font-medium text-text-primary text-sm">
               {monitor.name}
             </span>
+            {monitor.inMaintenance && (
+              <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold bg-status-maintenance/15 text-status-maintenance border border-status-maintenance/30">
+                MAINT.
+              </span>
+            )}
             <span className="text-xs text-text-muted">
               {MONITOR_TYPE_LABELS[monitor.type]}
             </span>

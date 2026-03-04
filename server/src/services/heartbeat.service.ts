@@ -11,6 +11,7 @@ interface HeartbeatRow {
   ping: number | null;
   is_retrying: boolean;
   value: string | null;
+  in_maintenance: boolean;
   created_at: Date;
 }
 
@@ -25,6 +26,7 @@ function rowToHeartbeat(row: HeartbeatRow): Heartbeat {
     ping: row.ping,
     isRetrying: row.is_retrying ?? false,
     value: row.value ?? null,
+    inMaintenance: row.in_maintenance ?? false,
     createdAt: row.created_at.toISOString(),
   };
 }
@@ -39,6 +41,7 @@ export const heartbeatService = {
     ping?: number;
     isRetrying?: boolean;
     value?: string;
+    inMaintenance?: boolean;
   }): Promise<Heartbeat> {
     const [row] = await db<HeartbeatRow>('heartbeats')
       .insert({
@@ -50,6 +53,7 @@ export const heartbeatService = {
         ping: data.ping ?? null,
         is_retrying: data.isRetrying ?? false,
         value: data.value ?? null,
+        in_maintenance: data.inMaintenance ?? false,
       })
       .returning('*');
 
@@ -104,7 +108,7 @@ export const heartbeatService = {
     minResponseTime: number | null;
     maxResponseTime: number | null;
   }> {
-    const query = db('heartbeats').where({ monitor_id: monitorId });
+    const query = db('heartbeats').where({ monitor_id: monitorId }).where({ in_maintenance: false });
     if (since) {
       query.where('created_at', '>=', since);
     }
@@ -138,7 +142,7 @@ export const heartbeatService = {
   async getStatsForAllMonitors(since?: Date): Promise<
     Map<number, { uptimePct: number; avgResponseTime: number | null }>
   > {
-    const query = db('heartbeats');
+    const query = db('heartbeats').where({ in_maintenance: false });
     if (since) {
       query.where('created_at', '>=', since);
     }
@@ -171,7 +175,8 @@ export const heartbeatService = {
   async getRawStatsPerGroup(since?: Date): Promise<Map<number, { total: number; up: number }>> {
     const query = db('heartbeats')
       .join('monitors', 'heartbeats.monitor_id', 'monitors.id')
-      .whereNotNull('monitors.group_id');
+      .whereNotNull('monitors.group_id')
+      .where({ 'heartbeats.in_maintenance': false });
 
     if (since) {
       query.where('heartbeats.created_at', '>=', since);
@@ -384,7 +389,8 @@ export const heartbeatService = {
     // Heartbeat stats
     const query = db('heartbeats')
       .join('monitors', 'heartbeats.monitor_id', 'monitors.id')
-      .whereIn('monitors.group_id', descendantSubquery);
+      .whereIn('monitors.group_id', descendantSubquery)
+      .where({ 'heartbeats.in_maintenance': false });
 
     if (since) {
       query.where('heartbeats.created_at', '>=', since);

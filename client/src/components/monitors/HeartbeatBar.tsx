@@ -76,25 +76,35 @@ export function HeartbeatBar({ heartbeats, maxBars }: HeartbeatBarProps) {
   return (
     <div ref={containerRef} className="w-full">
       <div className="flex items-center gap-[2px]">
-        {bars.map((hb, i) => (
-          <div
-            key={i}
-            className={cn(
-              'h-6 w-[6px] rounded-sm transition-all',
-              hb
-                ? hb.isRetrying
-                  ? 'bg-orange-500'
-                  : statusColors[hb.status] || 'bg-border'
-                : 'bg-bg-tertiary',
-              hb && 'hover:opacity-80 cursor-default',
-            )}
-            title={
-              hb
-                ? `${hb.status.toUpperCase()}${hb.isRetrying ? ' (Retrying)' : ''} - ${hb.responseTime ? `${hb.responseTime}ms` : 'N/A'} - ${new Date(hb.createdAt).toLocaleString()}`
-                : undefined
+        {bars.map((hb, i) => {
+          // Determine bar color: maintenance down/pending → maintenance color (blue)
+          let barColor = 'bg-bg-tertiary';
+          if (hb) {
+            if (hb.inMaintenance && hb.status !== 'up') {
+              barColor = 'bg-status-maintenance';
+            } else if (hb.isRetrying) {
+              barColor = 'bg-orange-500';
+            } else {
+              barColor = statusColors[hb.status] || 'bg-border';
             }
-          />
-        ))}
+          }
+          const maintenanceLabel = hb?.inMaintenance && hb.status !== 'up' ? ' · In maintenance' : '';
+          return (
+            <div
+              key={i}
+              className={cn(
+                'h-6 w-[6px] rounded-sm transition-all',
+                barColor,
+                hb && 'hover:opacity-80 cursor-default',
+              )}
+              title={
+                hb
+                  ? `${hb.status.toUpperCase()}${hb.isRetrying ? ' (Retrying)' : ''}${maintenanceLabel} - ${hb.responseTime ? `${hb.responseTime}ms` : 'N/A'} - ${new Date(hb.createdAt).toLocaleString()}`
+                  : undefined
+              }
+            />
+          );
+        })}
       </div>
     </div>
   );

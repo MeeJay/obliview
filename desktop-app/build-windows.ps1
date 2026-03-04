@@ -13,14 +13,21 @@
 # Outputs:
 #   dist\Obliview.exe        — portable executable
 #   dist\ObliviewSetup.msi   — Windows installer with Start Menu + optional Desktop shortcut
-Set-StrictMode -Version Latest
+
+# NOTE: Set-StrictMode is intentionally NOT used here.
+# On certain PowerShell + Go version combinations, Set-StrictMode -Version Latest causes
+# variables set before a `go run` call to become undefined afterwards (a known PS strict-mode
+# interaction with native commands).  $ErrorActionPreference = 'Stop' is sufficient.
 $ErrorActionPreference = 'Stop'
 
-$AppName   = 'Obliview'
-$ExeName   = 'Obliview.exe'
-$MsiName   = 'ObliviewSetup.msi'
-$WxsFile   = 'installer.wxs'
-$DistDir   = 'dist'
+# All script-level variables declared up-front so they are always in scope.
+$AppName     = 'Obliview'
+$ExeName     = 'Obliview.exe'
+$MsiName     = 'ObliviewSetup.msi'
+$WxsFile     = 'installer.wxs'
+$DistDir     = 'dist'
+$sysoFile    = 'obliview.syso'
+$sysoCreated = $false
 
 # ── Read version (single source of truth) ───────────────────────────────────
 # Edit the VERSION file to bump; this script injects it into the binary and MSI.
@@ -59,23 +66,43 @@ Write-Host "  logo.ico: OK"
 Write-Host "`n=== Step 2: Embedding icon resource ===" -ForegroundColor Cyan
 # rsrc generates a .syso file from logo.ico; go build picks it up automatically.
 # Using a pinned version for reproducible builds.
-$sysoFile = 'obliview.syso'
-go run github.com/akavel/rsrc@v0.10.2 -ico logo.ico -o $sysoFile
-if ($LASTEXITCODE -ne 0) { Write-Error "rsrc failed — icon will not be embedded." }
-Write-Host "  Icon resource: $sysoFile"
+# Quote the module path so PowerShell does not misparse '@' as a splatting operator.
+go run "github.com/akavel/rsrc@v0.10.2" -ico logo.ico -o $sysoFile
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "rsrc failed (exit $LASTEXITCODE) — binary will be built without a custom icon."
+} else {
+    $sysoCreated = $true
+    Write-Host "  Icon resource: $sysoFile"
+}
 
 # ── Step 3: Build the Go binary ─────────────────────────────────────────────
 Write-Host "`n=== Step 3: Building $ExeName ===" -ForegroundColor Cyan
+
+# webview_go's bundled WebView2.h includes "EventToken.h" — a Windows Runtime header
+# that MinGW distributions (TDM-GCC, w64devkit, MSYS2) place in a winrt/ subdirectory
+# which is NOT on the compiler's default include path.
+# We write a minimal stub to a short, space-free path (spaces in -I paths break CGO
+# flag parsing even when quoted).  CGO_CXXFLAGS is used because webview.cc is C++;
+# CGO_CFLAGS only covers plain C compilation units.
+# This is the same approach used in 00-D1-build-msi.bat.
+$stubDir = 'C:\obliview-winrt'
+if (-not (Test-Path $stubDir)) { New-Item -ItemType Directory -Path $stubDir | Out-Null }
+Set-Content "$stubDir\EventToken.h" @'
+#pragma once
+typedef struct EventRegistrationToken { __int64 value; } EventRegistrationToken;
+'@ -Encoding ASCII
+$env:CGO_CXXFLAGS = '-IC:/obliview-winrt'
+Write-Host "  EventToken.h stub: $stubDir"
 
 $env:CGO_ENABLED = '1'
 # -H windowsgui   suppresses the console window that would otherwise flash on launch.
 # -X main.appVersion injects the version string so React can detect outdated clients.
 go build -ldflags "-H windowsgui -X main.appVersion=$Version" -o $ExeName .
 if ($LASTEXITCODE -ne 0) {
-    Remove-Item $sysoFile -ErrorAction SilentlyContinue
+    if ($sysoCreated) { Remove-Item $sysoFile -ErrorAction SilentlyContinue }
     Write-Error "go build failed."
 }
-Remove-Item $sysoFile -ErrorAction SilentlyContinue
+if ($sysoCreated) { Remove-Item $sysoFile -ErrorAction SilentlyContinue }
 
 # Move to dist/
 if (-not (Test-Path $DistDir)) { New-Item -ItemType Directory -Path $DistDir | Out-Null }

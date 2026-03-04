@@ -20,53 +20,61 @@ const isNativeApp = !!nw?.__obliview_is_native_app;
 // ── Static data ───────────────────────────────────────────────────────────────
 
 interface DownloadEntry {
-  label: string;
+  label: string;      // format label, e.g. "Disk Image (.dmg)"
+  sublabel: string;   // arch / OS note, e.g. "Apple Silicon (M1–M4)"
   filename: string;
   primary?: boolean;
-  note?: string;
 }
 
 interface Platform {
   name: string;
   icon: React.ReactNode;
-  description: string;
   downloads: DownloadEntry[];
 }
 
 const PLATFORMS: Platform[] = [
   {
     name: 'Windows',
-    icon: <Monitor size={28} />,
-    description: 'Windows 10 / 11 (64-bit)',
+    icon: <Monitor size={24} />,
     downloads: [
       {
         label: 'Installer (.msi)',
+        sublabel: 'Windows 10/11 · x64',
         filename: 'ObliviewSetup.msi',
         primary: true,
-        note: 'Installs to Program Files with a Start Menu shortcut. Recommended.',
       },
       {
         label: 'Portable (.exe)',
+        sublabel: 'Windows 10 1803+ · x64',
         filename: 'Obliview.exe',
-        note: 'Single executable — no installation needed. Requires WebView2 (built into Windows 10 1803+ / Edge Chromium).',
       },
     ],
   },
   {
     name: 'macOS',
-    icon: <Apple size={28} />,
-    description: 'macOS 10.13 or later',
+    icon: <Apple size={24} />,
     downloads: [
       {
         label: 'Disk Image (.dmg)',
-        filename: 'Obliview.dmg',
+        sublabel: 'Apple Silicon (M1–M4)',
+        filename: 'Obliview-arm64.dmg',
         primary: true,
-        note: 'Open the DMG and drag Obliview to Applications. Right-click → Open on first launch (Gatekeeper).',
       },
       {
-        label: 'Zip archive (.zip)',
-        filename: 'Obliview.zip',
-        note: 'Extract and move Obliview.app to Applications manually.',
+        label: 'Disk Image (.dmg)',
+        sublabel: 'Intel (x86_64)',
+        filename: 'Obliview-amd64.dmg',
+        primary: true,
+      },
+      {
+        label: 'Zip Archive (.zip)',
+        sublabel: 'Apple Silicon (M1–M4)',
+        filename: 'Obliview-arm64.zip',
+      },
+      {
+        label: 'Zip Archive (.zip)',
+        sublabel: 'Intel (x86_64)',
+        filename: 'Obliview-amd64.zip',
       },
     ],
   },
@@ -186,80 +194,75 @@ export function DownloadPage() {
       </div>
 
       {/* Download cards */}
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="flex flex-col gap-4">
         {PLATFORMS.map((p) => (
           <div
             key={p.name}
-            className="flex flex-col rounded-xl border border-border bg-bg-secondary p-6"
+            className="rounded-xl border border-border bg-bg-secondary p-5"
           >
-            <div className="mb-4 flex items-center gap-3 text-text-primary">
+            {/* Platform header */}
+            <div className="mb-3 flex items-center gap-2.5 text-text-primary">
               <span className="text-text-secondary">{p.icon}</span>
-              <div>
-                <div className="font-semibold">{p.name}</div>
-                <div className="text-xs text-text-muted">{p.description}</div>
-              </div>
+              <span className="font-semibold">{p.name}</span>
             </div>
 
-            <div className="flex flex-1 flex-col gap-2">
-              {p.downloads.map((d) => (
-                <div key={d.filename} className="flex flex-1 flex-col">
-                  {d.note && (
-                    <p className="mb-1.5 text-xs text-text-muted leading-relaxed">{d.note}</p>
-                  )}
+            {/* Download buttons — 2-column grid, tall buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              {p.downloads.map((d) => {
+                const isLoading = !!downloading[d.filename];
+                const isSaved   = !!downloaded[d.filename];
+                const hasError  = !!dlErrors[d.filename];
 
-                  {/* Error message (native only) */}
-                  {isNativeApp && dlErrors[d.filename] && (
-                    <div className="mb-1.5 flex items-center gap-1.5 text-xs text-red-400">
-                      <AlertCircle size={11} />
-                      {dlErrors[d.filename]}
-                    </div>
-                  )}
+                const base    = 'flex flex-col items-center justify-center gap-1 rounded-lg px-3 py-5 text-center transition-colors disabled:opacity-60 w-full';
+                const primary = `${base} bg-accent font-semibold text-white hover:opacity-90`;
+                const secondary = `${base} border border-border bg-bg-tertiary text-text-secondary hover:bg-bg-hover hover:text-text-primary`;
 
-                  {/* Native app: button calling Go binding */}
-                  {isNativeApp ? (
-                    <button
-                      onClick={() => handleNativeDownload(`/downloads/${d.filename}`, d.filename)}
-                      disabled={!!downloading[d.filename]}
-                      className={
-                        d.primary
-                          ? 'mt-auto flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60'
-                          : 'mt-auto flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-bg-tertiary px-4 py-2 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-60'
-                      }
-                    >
-                      {downloading[d.filename] ? (
-                        <>
-                          <Loader2 size={13} className="animate-spin" />
-                          Downloading…
-                        </>
-                      ) : downloaded[d.filename] ? (
-                        <>
-                          <CheckCircle size={13} className={d.primary ? 'text-white/80' : 'text-green-400'} />
-                          Saved
-                        </>
-                      ) : (
-                        <>
-                          <Download size={13} />
-                          {d.label}
-                        </>
-                      )}
-                    </button>
-                  ) : (
-                    /* Browser: standard anchor download */
-                    <a
-                      href={`/downloads/${d.filename}`}
-                      download={d.filename}
-                      className={
-                        d.primary
-                          ? 'mt-auto flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90'
-                          : 'mt-auto flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-bg-tertiary px-4 py-2 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary'
-                      }
-                    >
-                      <Download size={13} />
-                      {d.label}
-                    </a>
-                  )}
-                </div>
-              ))}
+                const inner = isLoading ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    <span className="text-xs mt-0.5">Downloading…</span>
+                  </>
+                ) : isSaved ? (
+                  <>
+                    <CheckCircle size={15} className={d.primary ? 'text-white/80' : 'text-green-400'} />
+                    <span className="text-xs mt-0.5">Saved</span>
+                  </>
+                ) : (
+                  <>
+                    <Download size={15} />
+                    <span className="text-xs font-semibold leading-tight mt-0.5">{d.label}</span>
+                    <span className="text-xs leading-tight opacity-60">{d.sublabel}</span>
+                  </>
+                );
+
+                return (
+                  <div key={d.filename} className="flex flex-col">
+                    {hasError && isNativeApp && (
+                      <div className="mb-1 flex items-center gap-1 text-xs text-red-400">
+                        <AlertCircle size={10} />
+                        <span className="truncate">{dlErrors[d.filename]}</span>
+                      </div>
+                    )}
+                    {isNativeApp ? (
+                      <button
+                        onClick={() => handleNativeDownload(`/downloads/${d.filename}`, d.filename)}
+                        disabled={isLoading}
+                        className={d.primary ? primary : secondary}
+                      >
+                        {inner}
+                      </button>
+                    ) : (
+                      <a
+                        href={`/downloads/${d.filename}`}
+                        download={d.filename}
+                        className={d.primary ? primary : secondary}
+                      >
+                        {inner}
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}

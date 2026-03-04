@@ -14,6 +14,7 @@ import remediationRoutes from './remediation.routes';
 import smtpServerRoutes from './smtpServer.routes';
 import appConfigRoutes from './appConfig.routes';
 import twoFactorRoutes from './twoFactor.routes';
+import maintenanceRoutes from './maintenance.routes';
 
 const router = Router();
 
@@ -32,5 +33,6 @@ router.use('/remediation', remediationRoutes);
 router.use('/admin/smtp-servers', smtpServerRoutes);
 router.use('/admin/config', appConfigRoutes);
 router.use('/profile/2fa', twoFactorRoutes);
+router.use('/maintenance', maintenanceRoutes);
 
 export { router as routes };

@@ -117,6 +117,7 @@ export interface Monitor {
   createdBy: number | null;
   createdAt: string;
   updatedAt: string;
+  inMaintenance?: boolean;
 }
 
 // ============================================
@@ -132,6 +133,7 @@ export interface Heartbeat {
   ping: number | null;
   isRetrying: boolean;
   value: string | null;
+  inMaintenance?: boolean;
   createdAt: string;
 }
 
@@ -214,6 +216,58 @@ export interface Incident {
   newStatus: MonitorStatus;
   message: string | null;
 }
+
+// ============================================
+// Maintenance Window types
+// ============================================
+export type MaintenanceScopeType = 'group' | 'monitor' | 'agent';
+export type MaintenanceScheduleType = 'one_time' | 'recurring';
+export type MaintenanceRecurrenceType = 'daily' | 'weekly';
+
+export interface MaintenanceWindow {
+  id: number;
+  name: string;
+  scopeType: MaintenanceScopeType;
+  scopeId: number;
+  isOverride: boolean;
+  scheduleType: MaintenanceScheduleType;
+  // one_time
+  startAt: string | null;
+  endAt: string | null;
+  // recurring
+  startTime: string | null;   // 'HH:MM'
+  endTime: string | null;     // 'HH:MM'
+  recurrenceType: MaintenanceRecurrenceType | null;
+  daysOfWeek: number[] | null; // 0=Mon … 6=Sun
+  timezone: string;
+  notifyChannelIds: number[];
+  lastNotifiedStartAt: string | null;
+  lastNotifiedEndAt: string | null;
+  active: boolean;
+  createdAt: string;
+  // computed by server
+  isActiveNow?: boolean;
+  scopeName?: string;
+}
+
+export interface CreateMaintenanceWindowRequest {
+  name: string;
+  scopeType: MaintenanceScopeType;
+  scopeId: number;
+  isOverride?: boolean;
+  scheduleType: MaintenanceScheduleType;
+  startAt?: string | null;
+  endAt?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  recurrenceType?: MaintenanceRecurrenceType | null;
+  daysOfWeek?: number[] | null;
+  timezone?: string;
+  notifyChannelIds?: number[];
+  active?: boolean;
+}
+
+export type UpdateMaintenanceWindowRequest = Partial<CreateMaintenanceWindowRequest>;
 
 // ============================================
 // API types
@@ -587,6 +641,7 @@ export interface AgentDevice {
    * Used by the cleanup job to auto-delete the device ~10 minutes after delivery.
    */
   uninstallCommandedAt?: string | null;
+  inMaintenance?: boolean;
 }
 
 // ============================================

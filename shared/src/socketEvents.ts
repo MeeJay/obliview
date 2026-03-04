@@ -33,6 +33,10 @@ export const SOCKET_EVENTS = {
   AGENT_STATUS_CHANGED: 'agent:statusChanged',
   /** Emitted when a device is auto-deleted (e.g. after successful uninstall command) */
   AGENT_DEVICE_DELETED: 'agent:deviceDeleted',
+
+  // Maintenance events
+  /** Emitted when a maintenance window is created, updated, or deleted */
+  MAINTENANCE_CHANGED: 'maintenance:changed',
 } as const;
 
 // Client → Server events

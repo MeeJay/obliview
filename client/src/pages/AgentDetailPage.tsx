@@ -16,6 +16,7 @@ import type { AgentMetrics, AgentPushSnapshot } from '../types/agent';
 import { getSocket } from '../socket/socketClient';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { NotificationBindingsPanel } from '../components/notifications/NotificationBindingsPanel';
+import { MaintenanceWindowList } from '../components/maintenance/MaintenanceWindowList';
 import { cn } from '../utils/cn';
 import { prettifySensorLabel } from '../utils/sensorLabels';
 
@@ -2498,6 +2499,11 @@ export function AgentDetailPage() {
                 {!editingName ? (
                   <>
                     <h1 className="text-xl font-bold text-text-primary">{device.name ?? device.hostname}</h1>
+                    {device.inMaintenance && (
+                      <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-status-maintenance/15 text-status-maintenance border border-status-maintenance/30">
+                        MAINT.
+                      </span>
+                    )}
                     <button
                       onClick={() => { setNameValue(device.name ?? ''); setEditingName(true); }}
                       className="p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
@@ -2656,6 +2662,18 @@ export function AgentDetailPage() {
           scope="agent"
           scopeId={device.id}
         />
+
+        {/* ── Agent Maintenance Windows ── */}
+        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <MaintenanceWindowList
+            scopeType="agent"
+            scopeId={device.id}
+            scopeOptions={[{ id: device.id, name: device.name ?? device.hostname, type: 'agent' }]}
+            channels={[]}
+            defaultScopeType="agent"
+            defaultScopeId={device.id}
+          />
+        </div>
 
       </div>
 

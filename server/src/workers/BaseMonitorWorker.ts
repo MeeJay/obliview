@@ -8,6 +8,7 @@ import { remediationService } from '../services/remediation.service';
 import { groupService } from '../services/group.service';
 import { groupNotificationService } from '../services/groupNotification.service';
 import { permissionService } from '../services/permission.service';
+import { maintenanceService } from '../services/maintenance.service';
 import { db } from '../db';
 import { logger } from '../utils/logger';
 
@@ -127,7 +128,13 @@ export abstract class BaseMonitorWorker {
       }
       const isRetrying = isRetryableStatus && this.retryCount <= this.config.maxRetries;
 
-      // 1. Store heartbeat (with retry flag)
+      // 0. Check maintenance state (cached — 60s TTL)
+      const agentDeviceId = this.config.agentDeviceId as number | null | undefined;
+      const inMaintenance = agentDeviceId
+        ? await maintenanceService.isInMaintenance('agent', agentDeviceId, this.config.groupId)
+        : await maintenanceService.isInMaintenance('monitor', this.config.id, this.config.groupId);
+
+      // 1. Store heartbeat (with retry flag + maintenance tag)
       const heartbeat = await heartbeatService.create({
         monitorId: this.config.id,
         status: result.status,
@@ -137,6 +144,7 @@ export abstract class BaseMonitorWorker {
         ping: result.ping,
         isRetrying,
         value: result.value,
+        inMaintenance,
       });
 
       // 1b. Value changed notification (value watcher "changed" operator)
@@ -164,7 +172,7 @@ export abstract class BaseMonitorWorker {
         if (this.retryCount > this.config.maxRetries) {
           // Retries exhausted — confirmed problem (DOWN or ALERT)
           if (this.confirmedStatus !== result.status) {
-            await this.handleStatusChange(result.status, result.message);
+            await this.handleStatusChange(result.status, result.message, inMaintenance);
             this.confirmedStatus = result.status;
           }
         }
@@ -173,13 +181,13 @@ export abstract class BaseMonitorWorker {
         // SSL statuses fire immediately with no retries
         this.retryCount = 0;
         if (this.confirmedStatus !== result.status) {
-          await this.handleStatusChange(result.status, result.message);
+          await this.handleStatusChange(result.status, result.message, inMaintenance);
           this.confirmedStatus = result.status;
         }
       } else {
         // Status is UP or other non-retryable/non-ssl (e.g. 'inactive')
         if (this.confirmedStatus !== result.status && this.confirmedStatus !== 'pending') {
-          await this.handleStatusChange(result.status, result.message);
+          await this.handleStatusChange(result.status, result.message, inMaintenance);
         }
         this.confirmedStatus = result.status;
         this.retryCount = 0;
@@ -216,7 +224,7 @@ export abstract class BaseMonitorWorker {
     }
   }
 
-  private async handleStatusChange(newStatus: MonitorStatus, message?: string): Promise<void> {
+  private async handleStatusChange(newStatus: MonitorStatus, message?: string, inMaintenance?: boolean): Promise<void> {
     const oldStatus = this.confirmedStatus;
     logger.info(
       `Monitor "${this.config.name}" (id: ${this.config.id}): ${oldStatus} → ${newStatus}`,
@@ -239,6 +247,16 @@ export abstract class BaseMonitorWorker {
     // was disabled — the user does not want a "recovered" ping for simply resuming data.
     // Threshold violations (inactive → 'alert') still fire normally.
     if (oldStatus === 'inactive' && newStatus === 'up') {
+      return;
+    }
+
+    // ── Maintenance suppression ────────────────────────────────────────────────
+    // When in maintenance, skip notifications and remediations entirely.
+    if (inMaintenance) {
+      logger.info(
+        `Monitor "${this.config.name}" (id: ${this.config.id}): ` +
+        `status change ${oldStatus} → ${newStatus} suppressed (in maintenance)`,
+      );
       return;
     }
 
