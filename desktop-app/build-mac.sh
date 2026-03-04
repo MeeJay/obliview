@@ -184,7 +184,10 @@ EOF
     BG_APPLESCRIPT="set background picture of viewOptions to file \".background:background.png\""
   fi
 
-  osascript <<APPLESCRIPT
+  # Style the DMG window via Finder (requires a GUI/desktop session).
+  # In headless SSH builds the Finder is unavailable; we suppress the error and
+  # continue — the DMG will work fine as an installer without custom styling.
+  osascript 2>/dev/null <<APPLESCRIPT || echo "  NOTE: Finder styling skipped (headless/SSH session — DMG will still work)."
 tell application "Finder"
   tell disk "$APPNAME"
     open
