@@ -220,7 +220,7 @@ export interface Incident {
 // ============================================
 // Maintenance Window types
 // ============================================
-export type MaintenanceScopeType = 'group' | 'monitor' | 'agent';
+export type MaintenanceScopeType = 'global' | 'group' | 'monitor' | 'agent';
 export type MaintenanceScheduleType = 'one_time' | 'recurring';
 export type MaintenanceRecurrenceType = 'daily' | 'weekly';
 
@@ -228,8 +228,8 @@ export interface MaintenanceWindow {
   id: number;
   name: string;
   scopeType: MaintenanceScopeType;
-  scopeId: number;
-  isOverride: boolean;
+  scopeId: number | null;       // null for 'global' scope
+  isOverride: boolean;          // DEPRECATED — kept for DB compat, ignored in logic
   scheduleType: MaintenanceScheduleType;
   // one_time
   startAt: string | null;
@@ -245,16 +245,33 @@ export interface MaintenanceWindow {
   lastNotifiedEndAt: string | null;
   active: boolean;
   createdAt: string;
-  // computed by server
+  // Computed by server (always present on API responses)
   isActiveNow?: boolean;
   scopeName?: string;
+  // Computed for effective-windows view (present when fetched via /effective endpoint)
+  source?: 'local' | 'group' | 'global';
+  sourceId?: number | null;     // id of the owning group/monitor/agent (null for global)
+  sourceName?: string;          // display name of the owning scope
+  isDisabledHere?: boolean;     // true if this scope has disabled this inherited window
+  canEdit?: boolean;            // true if the current scope owns this window
+  canDelete?: boolean;          // true if the current scope owns this window
+  canDisable?: boolean;         // true if inherited AND not yet disabled at this scope
+  canEnable?: boolean;          // true if inherited AND currently disabled at this scope
+}
+
+export interface MaintenanceWindowDisable {
+  id: number;
+  windowId: number;
+  scopeType: 'group' | 'monitor' | 'agent';
+  scopeId: number;
+  createdAt: string;
 }
 
 export interface CreateMaintenanceWindowRequest {
   name: string;
   scopeType: MaintenanceScopeType;
-  scopeId: number;
-  isOverride?: boolean;
+  scopeId?: number | null;      // omit / null for 'global'
+  isOverride?: boolean;         // DEPRECATED, accepted for backward compat
   scheduleType: MaintenanceScheduleType;
   startAt?: string | null;
   endAt?: string | null;

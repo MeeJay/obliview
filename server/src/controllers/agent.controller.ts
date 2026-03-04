@@ -218,21 +218,10 @@ export async function listDevices(req: Request, res: Response): Promise<void> {
     validStatuses.includes(status ?? '') ? (status as 'pending' | 'approved' | 'refused' | 'suspended') : undefined,
   );
 
-  // Batch resolve maintenance state
-  const now = new Date();
-  const allWindows = await maintenanceService.list({ scopeType: 'agent' });
-  const groupWindows = await maintenanceService.list({ scopeType: 'group' });
-  const isWindowActive = (await import('../services/maintenance.service')).isWindowActive;
-
+  // Batch resolve maintenance state using the service (cached, includes global + group + own)
   const enriched = await Promise.all(devices.map(async (d) => {
-    const ownWindows = allWindows.filter((w) => w.scopeId === d.id);
-    const hasOverride = ownWindows.some((w) => w.isOverride);
-    let applicable = hasOverride ? ownWindows.filter((w) => w.isOverride) : ownWindows;
-    if (!hasOverride && d.groupId) {
-      const ancestorIds = await maintenanceService.getAncestorGroupIds(d.groupId);
-      applicable = [...applicable, ...groupWindows.filter((w) => ancestorIds.includes(w.scopeId))];
-    }
-    return { ...d, inMaintenance: applicable.some((w) => isWindowActive(w, now)) };
+    const inMaintenance = await maintenanceService.isInMaintenance('agent', d.id, d.groupId);
+    return { ...d, inMaintenance };
   }));
 
   res.json({ success: true, data: enriched });

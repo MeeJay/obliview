@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { maintenanceService, isWindowActive } from '../services/maintenance.service';
-import type { CreateMaintenanceWindowRequest, UpdateMaintenanceWindowRequest } from '@obliview/shared';
+import type { CreateMaintenanceWindowRequest, UpdateMaintenanceWindowRequest, MaintenanceScopeType } from '@obliview/shared';
 import { db } from '../db';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -11,19 +11,24 @@ async function enrichWindow(w: Awaited<ReturnType<typeof maintenanceService.getB
   const isActiveNow = isWindowActive(w, now);
 
   // Resolve scope name
-  let scopeName = `#${w.scopeId}`;
-  try {
-    if (w.scopeType === 'group') {
-      const row = await db('monitor_groups').where({ id: w.scopeId }).select('name').first();
-      if (row) scopeName = row.name;
-    } else if (w.scopeType === 'monitor') {
-      const row = await db('monitors').where({ id: w.scopeId }).select('name').first();
-      if (row) scopeName = row.name;
-    } else if (w.scopeType === 'agent') {
-      const row = await db('agent_devices').where({ id: w.scopeId }).select('name', 'hostname').first();
-      if (row) scopeName = row.name ?? row.hostname;
-    }
-  } catch { /* ignore */ }
+  let scopeName: string;
+  if (w.scopeType === 'global') {
+    scopeName = 'Global';
+  } else {
+    scopeName = `#${w.scopeId}`;
+    try {
+      if (w.scopeType === 'group') {
+        const row = await db('monitor_groups').where({ id: w.scopeId }).select('name').first();
+        if (row) scopeName = row.name;
+      } else if (w.scopeType === 'monitor') {
+        const row = await db('monitors').where({ id: w.scopeId }).select('name').first();
+        if (row) scopeName = row.name;
+      } else if (w.scopeType === 'agent') {
+        const row = await db('agent_devices').where({ id: w.scopeId }).select('name', 'hostname').first();
+        if (row) scopeName = row.name ?? row.hostname;
+      }
+    } catch { /* ignore */ }
+  }
 
   return { ...w, isActiveNow, scopeName };
 }
@@ -64,8 +69,12 @@ export const maintenanceController = {
     try {
       const body: CreateMaintenanceWindowRequest = req.body;
 
-      if (!body.name || !body.scopeType || !body.scopeId || !body.scheduleType) {
-        return res.status(400).json({ success: false, error: 'name, scopeType, scopeId and scheduleType are required' });
+      if (!body.name || !body.scopeType || !body.scheduleType) {
+        return res.status(400).json({ success: false, error: 'name, scopeType and scheduleType are required' });
+      }
+      // scopeId is required for non-global scope types
+      if (body.scopeType !== 'global' && !body.scopeId) {
+        return res.status(400).json({ success: false, error: 'scopeId is required for non-global windows' });
       }
       if (body.scheduleType === 'one_time' && (!body.startAt || !body.endAt)) {
         return res.status(400).json({ success: false, error: 'startAt and endAt are required for one-time windows' });
@@ -77,8 +86,7 @@ export const maintenanceController = {
       const created = await maintenanceService.create({
         name: body.name,
         scopeType: body.scopeType,
-        scopeId: body.scopeId,
-        isOverride: body.isOverride ?? false,
+        scopeId: body.scopeType === 'global' ? null : (body.scopeId ?? null),
         scheduleType: body.scheduleType,
         startAt: body.startAt ?? null,
         endAt: body.endAt ?? null,
@@ -106,7 +114,21 @@ export const maintenanceController = {
       const id = Number(req.params.id);
       const body: UpdateMaintenanceWindowRequest = req.body;
 
-      const updated = await maintenanceService.update(id, body);
+      const updated = await maintenanceService.update(id, {
+        name: body.name,
+        scopeType: body.scopeType,
+        scopeId: body.scopeId,
+        scheduleType: body.scheduleType,
+        startAt: body.startAt,
+        endAt: body.endAt,
+        startTime: body.startTime,
+        endTime: body.endTime,
+        recurrenceType: body.recurrenceType,
+        daysOfWeek: body.daysOfWeek,
+        timezone: body.timezone,
+        notifyChannelIds: body.notifyChannelIds,
+        active: body.active,
+      });
       if (!updated) return res.status(404).json({ success: false, error: 'Not found' });
 
       const enriched = await enrichWindow(updated);
@@ -123,6 +145,103 @@ export const maintenanceController = {
       const existing = await maintenanceService.getById(id);
       if (!existing) return res.status(404).json({ success: false, error: 'Not found' });
       await maintenanceService.delete(id);
+      return res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  },
+
+  /**
+   * GET /maintenance/effective/:type/:id
+   * Returns all effective windows (local + inherited) for a monitor, agent, or group.
+   * Enriches each window with source, sourceName, isDisabledHere, canEdit, etc.
+   */
+  async getEffective(req: Request, res: Response) {
+    try {
+      const scopeType = req.params.type as 'monitor' | 'agent' | 'group';
+      const scopeId = Number(req.params.id);
+
+      if (!['monitor', 'agent', 'group'].includes(scopeType)) {
+        return res.status(400).json({ success: false, error: 'type must be monitor, agent, or group' });
+      }
+
+      // Resolve groupId for monitors and agents
+      let groupId: number | null = null;
+      if (scopeType === 'monitor') {
+        const row = await db('monitors').where({ id: scopeId }).select('group_id').first();
+        groupId = row?.group_id ?? null;
+      } else if (scopeType === 'agent') {
+        const row = await db('agent_devices').where({ id: scopeId }).select('group_id').first();
+        groupId = row?.group_id ?? null;
+      } else {
+        // group: groupId = scopeId itself (used to find parent groups)
+        groupId = scopeId;
+      }
+
+      const windows = await maintenanceService.getEffectiveWindows(scopeType, scopeId, groupId);
+
+      // Enrich sourceName for local windows (we know the scope name since we're on the detail page,
+      // but keep it undefined to let the client use its own label — consistent with plan)
+      const now = new Date();
+      const enriched = windows.map((w) => ({
+        ...w,
+        isActiveNow: w.isActiveNow ?? isWindowActive(w, now),
+      }));
+
+      return res.json({ success: true, data: enriched });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  },
+
+  /**
+   * POST /maintenance/:id/disable
+   * Body: { scopeType: 'group'|'monitor'|'agent', scopeId: number }
+   * Disables an inherited window at the given scope.
+   */
+  async disable(req: Request, res: Response) {
+    try {
+      const windowId = Number(req.params.id);
+      const { scopeType, scopeId } = req.body as { scopeType: 'group' | 'monitor' | 'agent'; scopeId: number };
+
+      if (!scopeType || !scopeId) {
+        return res.status(400).json({ success: false, error: 'scopeType and scopeId are required' });
+      }
+      if (!['group', 'monitor', 'agent'].includes(scopeType)) {
+        return res.status(400).json({ success: false, error: 'scopeType must be group, monitor, or agent' });
+      }
+
+      const existing = await maintenanceService.getById(windowId);
+      if (!existing) return res.status(404).json({ success: false, error: 'Maintenance window not found' });
+
+      await maintenanceService.disableWindowForScope(windowId, scopeType, Number(scopeId));
+      return res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  },
+
+  /**
+   * DELETE /maintenance/:id/disable
+   * Body: { scopeType: 'group'|'monitor'|'agent', scopeId: number }
+   * Re-enables a previously disabled inherited window at the given scope.
+   */
+  async enable(req: Request, res: Response) {
+    try {
+      const windowId = Number(req.params.id);
+      const { scopeType, scopeId } = req.body as { scopeType: 'group' | 'monitor' | 'agent'; scopeId: number };
+
+      if (!scopeType || !scopeId) {
+        return res.status(400).json({ success: false, error: 'scopeType and scopeId are required' });
+      }
+      if (!['group', 'monitor', 'agent'].includes(scopeType)) {
+        return res.status(400).json({ success: false, error: 'scopeType must be group, monitor, or agent' });
+      }
+
+      await maintenanceService.enableWindowForScope(windowId, scopeType, Number(scopeId));
       return res.json({ success: true });
     } catch (err) {
       console.error(err);

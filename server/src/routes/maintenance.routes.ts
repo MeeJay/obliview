@@ -8,9 +8,17 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireRole('admin'));
 
+// Collection routes
 router.get('/', maintenanceController.list);
-router.get('/:id', maintenanceController.getById);
 router.post('/', maintenanceController.create);
+
+// Specific named routes before generic /:id to avoid param conflicts
+router.get('/effective/:type/:id', maintenanceController.getEffective);
+router.post('/:id/disable', maintenanceController.disable);
+router.delete('/:id/disable', maintenanceController.enable);
+
+// Generic /:id routes last
+router.get('/:id', maintenanceController.getById);
 router.put('/:id', maintenanceController.update);
 router.delete('/:id', maintenanceController.delete);
 

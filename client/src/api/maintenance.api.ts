@@ -17,6 +17,7 @@ async function req<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const maintenanceApi = {
+  /** List all windows, optionally filtered by scope type/id */
   list(params?: { scopeType?: string; scopeId?: number }): Promise<MaintenanceWindow[]> {
     const qs = new URLSearchParams();
     if (params?.scopeType) qs.set('scopeType', params.scopeType);
@@ -45,5 +46,33 @@ export const maintenanceApi = {
 
   delete(id: number): Promise<void> {
     return req<void>(`${BASE}/${id}`, { method: 'DELETE' });
+  },
+
+  /**
+   * Get all effective windows (local + inherited) for a scope entity.
+   * Each window includes source, isDisabledHere, canDisable, canEnable, etc.
+   */
+  getEffective(scopeType: 'monitor' | 'agent' | 'group', scopeId: number): Promise<MaintenanceWindow[]> {
+    return req<MaintenanceWindow[]>(`${BASE}/effective/${scopeType}/${scopeId}`);
+  },
+
+  /**
+   * Disable an inherited window at the given scope.
+   */
+  disableForScope(windowId: number, scopeType: 'group' | 'monitor' | 'agent', scopeId: number): Promise<void> {
+    return req<void>(`${BASE}/${windowId}/disable`, {
+      method: 'POST',
+      body: JSON.stringify({ scopeType, scopeId }),
+    });
+  },
+
+  /**
+   * Re-enable a previously disabled inherited window at the given scope.
+   */
+  enableForScope(windowId: number, scopeType: 'group' | 'monitor' | 'agent', scopeId: number): Promise<void> {
+    return req<void>(`${BASE}/${windowId}/disable`, {
+      method: 'DELETE',
+      body: JSON.stringify({ scopeType, scopeId }),
+    });
   },
 };

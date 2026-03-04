@@ -10,7 +10,7 @@ interface MaintenanceWindowRow {
   id: number;
   name: string;
   scope_type: string;
-  scope_id: number;
+  scope_id: number | null;
   is_override: boolean;
   schedule_type: string;
   start_at: Date | null;
@@ -89,7 +89,7 @@ function getNowDayOfWeekInTz(timezone: string, now: Date): number {
 }
 
 /**
- * Check if a given HH:MM time is within [startTime, endTime] range in a timezone.
+ * Check if a given HH:MM time is within [startTime, endTime] range.
  * Handles overnight ranges (e.g. 23:00 – 01:00).
  */
 function isTimeInRange(currentTime: string, startTime: string, endTime: string): boolean {
@@ -168,8 +168,15 @@ export const maintenanceService = {
 
   async list(filters?: { scopeType?: string; scopeId?: number }): Promise<MaintenanceWindow[]> {
     const query = db<MaintenanceWindowRow>('maintenance_windows').orderBy('created_at', 'desc');
-    if (filters?.scopeType) query.where({ scope_type: filters.scopeType });
-    if (filters?.scopeId !== undefined) query.where({ scope_id: filters.scopeId });
+    if (filters?.scopeType) {
+      query.where({ scope_type: filters.scopeType });
+      // For 'global', scope_id is NULL — do not add a scopeId filter
+      if (filters.scopeType !== 'global' && filters?.scopeId !== undefined) {
+        query.where({ scope_id: filters.scopeId });
+      }
+    } else if (filters?.scopeId !== undefined) {
+      query.where({ scope_id: filters.scopeId });
+    }
     const rows = await query;
     return rows.map(rowToWindow);
   },
@@ -179,13 +186,29 @@ export const maintenanceService = {
     return row ? rowToWindow(row) : null;
   },
 
-  async create(data: Omit<MaintenanceWindow, 'id' | 'createdAt' | 'isActiveNow' | 'scopeName'>): Promise<MaintenanceWindow> {
+  async create(data: {
+    name: string;
+    scopeType: MaintenanceScopeType;
+    scopeId?: number | null;
+    scheduleType: string;
+    startAt?: string | null;
+    endAt?: string | null;
+    startTime?: string | null;
+    endTime?: string | null;
+    recurrenceType?: string | null;
+    daysOfWeek?: number[] | null;
+    timezone?: string;
+    notifyChannelIds?: number[];
+    lastNotifiedStartAt?: string | null;
+    lastNotifiedEndAt?: string | null;
+    active?: boolean;
+  }): Promise<MaintenanceWindow> {
     const [row] = await db<MaintenanceWindowRow>('maintenance_windows')
       .insert({
         name: data.name,
         scope_type: data.scopeType,
-        scope_id: data.scopeId,
-        is_override: data.isOverride ?? false,
+        scope_id: data.scopeId ?? null,
+        is_override: false, // deprecated, always false
         schedule_type: data.scheduleType,
         start_at: data.startAt ? new Date(data.startAt) : null,
         end_at: data.endAt ? new Date(data.endAt) : null,
@@ -198,19 +221,32 @@ export const maintenanceService = {
         active: data.active ?? true,
       })
       .returning('*');
-    maintenanceCache.clear(); // invalidate cache on any write
+    maintenanceCache.clear();
     return rowToWindow(row);
   },
 
-  async update(id: number, data: Partial<Omit<MaintenanceWindow, 'id' | 'createdAt' | 'isActiveNow' | 'scopeName'>>): Promise<MaintenanceWindow | null> {
+  async update(id: number, data: {
+    name?: string;
+    scopeType?: MaintenanceScopeType;
+    scopeId?: number | null;
+    scheduleType?: string;
+    startAt?: string | null;
+    endAt?: string | null;
+    startTime?: string | null;
+    endTime?: string | null;
+    recurrenceType?: string | null;
+    daysOfWeek?: number[] | null;
+    timezone?: string;
+    notifyChannelIds?: number[];
+    active?: boolean;
+  }): Promise<MaintenanceWindow | null> {
     const patch: Record<string, unknown> = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.scopeType !== undefined) patch.scope_type = data.scopeType;
-    if (data.scopeId !== undefined) patch.scope_id = data.scopeId;
-    if (data.isOverride !== undefined) patch.is_override = data.isOverride;
+    if ('scopeId' in data) patch.scope_id = data.scopeId ?? null;
     if (data.scheduleType !== undefined) patch.schedule_type = data.scheduleType;
-    if ('startAt' in data) patch.start_at = data.startAt ?? null;
-    if ('endAt' in data) patch.end_at = data.endAt ?? null;
+    if ('startAt' in data) patch.start_at = data.startAt ? new Date(data.startAt) : null;
+    if ('endAt' in data) patch.end_at = data.endAt ? new Date(data.endAt) : null;
     if ('startTime' in data) patch.start_time = data.startTime ?? null;
     if ('endTime' in data) patch.end_time = data.endTime ?? null;
     if ('recurrenceType' in data) patch.recurrence_type = data.recurrenceType ?? null;
@@ -235,6 +271,38 @@ export const maintenanceService = {
     maintenanceCache.clear();
   },
 
+  // ── Disable / Enable ───────────────────────────────────────────────────────
+
+  /**
+   * Disable an inherited maintenance window at the given scope.
+   * Silently ignores duplicate disables (ON CONFLICT DO NOTHING).
+   */
+  async disableWindowForScope(
+    windowId: number,
+    scopeType: 'group' | 'monitor' | 'agent',
+    scopeId: number,
+  ): Promise<void> {
+    await db('maintenance_window_disables')
+      .insert({ window_id: windowId, scope_type: scopeType, scope_id: scopeId })
+      .onConflict(['window_id', 'scope_type', 'scope_id'])
+      .ignore();
+    maintenanceCache.clear();
+  },
+
+  /**
+   * Re-enable a previously disabled inherited maintenance window at the given scope.
+   */
+  async enableWindowForScope(
+    windowId: number,
+    scopeType: 'group' | 'monitor' | 'agent',
+    scopeId: number,
+  ): Promise<void> {
+    await db('maintenance_window_disables')
+      .where({ window_id: windowId, scope_type: scopeType, scope_id: scopeId })
+      .del();
+    maintenanceCache.clear();
+  },
+
   // ── Scope queries ──────────────────────────────────────────────────────────
 
   async getWindowsForScope(scopeType: MaintenanceScopeType, scopeId: number): Promise<MaintenanceWindow[]> {
@@ -254,59 +322,161 @@ export const maintenanceService = {
   },
 
   /**
-   * Resolve which maintenance windows apply to a monitor.
-   * - If monitor has any is_override=true windows → use only those.
-   * - Otherwise: own windows + ancestor group windows.
+   * Build the set of disabled window IDs for a given scope entity.
+   *
+   * Disables come from two sources:
+   *   1. Disables placed directly on this entity
+   *   2. Disables placed on any ancestor group (propagated down)
    */
-  async getWindowsAffectingMonitor(monitorId: number, groupId?: number | null): Promise<MaintenanceWindow[]> {
-    const ownRows = await db<MaintenanceWindowRow>('maintenance_windows')
-      .where({ scope_type: 'monitor', scope_id: monitorId, active: true });
-    const ownWindows = ownRows.map(rowToWindow);
+  async getDisabledWindowIds(
+    scopeType: 'monitor' | 'agent' | 'group',
+    scopeId: number,
+    ancestorGroupIds: number[],
+  ): Promise<Set<number>> {
+    const rows = await db('maintenance_window_disables')
+      .where(function () {
+        this.where({ scope_type: scopeType, scope_id: scopeId });
+        if (ancestorGroupIds.length > 0) {
+          this.orWhere(function () {
+            this.where('scope_type', 'group').whereIn('scope_id', ancestorGroupIds);
+          });
+        }
+      })
+      .select('window_id');
 
-    const hasOverride = ownWindows.some((w) => w.isOverride);
-    if (hasOverride) return ownWindows.filter((w) => w.isOverride);
-
-    const groupWindows: MaintenanceWindow[] = [];
-    if (groupId) {
-      const ancestorIds = await this.getAncestorGroupIds(groupId);
-      if (ancestorIds.length > 0) {
-        const groupRows = await db<MaintenanceWindowRow>('maintenance_windows')
-          .where({ scope_type: 'group', active: true })
-          .whereIn('scope_id', ancestorIds);
-        groupWindows.push(...groupRows.map(rowToWindow));
-      }
-    }
-
-    return [...ownWindows, ...groupWindows];
+    return new Set(rows.map((r: { window_id: number }) => r.window_id));
   },
 
   /**
-   * Resolve which maintenance windows apply to an agent device.
+   * Build the set of window IDs disabled DIRECTLY at this scope (not via ancestors).
+   * Used for the canEnable flag.
    */
-  async getWindowsAffectingAgent(deviceId: number, groupId?: number | null): Promise<MaintenanceWindow[]> {
-    const ownRows = await db<MaintenanceWindowRow>('maintenance_windows')
-      .where({ scope_type: 'agent', scope_id: deviceId, active: true });
-    const ownWindows = ownRows.map(rowToWindow);
+  async getDirectlyDisabledWindowIds(
+    scopeType: 'monitor' | 'agent' | 'group',
+    scopeId: number,
+  ): Promise<Set<number>> {
+    const rows = await db('maintenance_window_disables')
+      .where({ scope_type: scopeType, scope_id: scopeId })
+      .select('window_id');
+    return new Set(rows.map((r: { window_id: number }) => r.window_id));
+  },
 
-    const hasOverride = ownWindows.some((w) => w.isOverride);
-    if (hasOverride) return ownWindows.filter((w) => w.isOverride);
+  // ── Effective Windows ─────────────────────────────────────────────────────
 
-    const groupWindows: MaintenanceWindow[] = [];
-    if (groupId) {
-      const ancestorIds = await this.getAncestorGroupIds(groupId);
-      if (ancestorIds.length > 0) {
-        const groupRows = await db<MaintenanceWindowRow>('maintenance_windows')
-          .where({ scope_type: 'group', active: true })
-          .whereIn('scope_id', ancestorIds);
-        groupWindows.push(...groupRows.map(rowToWindow));
+  /**
+   * Get all maintenance windows that apply to a scope entity, with source metadata.
+   * Returned sorted: local first, then group (by ancestor proximity), then global.
+   * Each window carries: source, sourceId, sourceName, isDisabledHere,
+   * canEdit, canDelete, canDisable, canEnable.
+   */
+  async getEffectiveWindows(
+    scopeType: 'monitor' | 'agent' | 'group',
+    scopeId: number,
+    groupId?: number | null,
+  ): Promise<MaintenanceWindow[]> {
+    const now = new Date();
+    const result: MaintenanceWindow[] = [];
+
+    // 1. Ancestor group IDs
+    const ancestorGroupIds: number[] = groupId
+      ? await this.getAncestorGroupIds(groupId)
+      : (scopeType === 'group' ? await this.getAncestorGroupIds(scopeId) : []);
+
+    // 2. Disables for this entity (own + ancestor-group disables)
+    const disabledIds = await this.getDisabledWindowIds(scopeType, scopeId, ancestorGroupIds);
+
+    // 3. Disables placed directly at this scope (for canEnable)
+    const directlyDisabledIds = await this.getDirectlyDisabledWindowIds(scopeType, scopeId);
+
+    // ── Local windows (owned by this scope) ──────────────────────────────────
+    const localRows = await db<MaintenanceWindowRow>('maintenance_windows')
+      .where({ scope_type: scopeType, scope_id: scopeId, active: true });
+    for (const row of localRows) {
+      const w = rowToWindow(row);
+      result.push({
+        ...w,
+        isActiveNow: isWindowActive(w, now),
+        source: 'local',
+        sourceId: scopeId,
+        sourceName: undefined,
+        isDisabledHere: false,
+        canEdit: true,
+        canDelete: true,
+        canDisable: false,
+        canEnable: false,
+      });
+    }
+
+    // ── Group windows from ancestor groups ────────────────────────────────────
+    // For a group scope: ancestors = parent groups only (self already in local)
+    const groupAncestorIds = scopeType === 'group'
+      ? ancestorGroupIds.filter((id) => id !== scopeId)
+      : ancestorGroupIds;
+
+    if (groupAncestorIds.length > 0) {
+      const groupRows = await db<MaintenanceWindowRow>('maintenance_windows')
+        .where({ scope_type: 'group', active: true })
+        .whereIn('scope_id', groupAncestorIds);
+
+      const groupNames = new Map<number, string>();
+      try {
+        const nameRows = await db('monitor_groups')
+          .whereIn('id', groupAncestorIds)
+          .select('id', 'name');
+        for (const nr of nameRows) groupNames.set(nr.id, nr.name);
+      } catch { /* ignore */ }
+
+      for (const row of groupRows) {
+        const w = rowToWindow(row);
+        const isDisabledHere = disabledIds.has(w.id);
+        const isDirectlyDisabled = directlyDisabledIds.has(w.id);
+        result.push({
+          ...w,
+          isActiveNow: isWindowActive(w, now),
+          source: 'group',
+          sourceId: w.scopeId,
+          sourceName: groupNames.get(w.scopeId!) ?? `Group #${w.scopeId}`,
+          isDisabledHere,
+          canEdit: false,
+          canDelete: false,
+          canDisable: !isDisabledHere,
+          canEnable: isDirectlyDisabled,
+        });
       }
     }
 
-    return [...ownWindows, ...groupWindows];
+    // ── Global windows ────────────────────────────────────────────────────────
+    const globalRows = await db<MaintenanceWindowRow>('maintenance_windows')
+      .where({ scope_type: 'global', active: true });
+
+    for (const row of globalRows) {
+      const w = rowToWindow(row);
+      const isDisabledHere = disabledIds.has(w.id);
+      const isDirectlyDisabled = directlyDisabledIds.has(w.id);
+      result.push({
+        ...w,
+        isActiveNow: isWindowActive(w, now),
+        source: 'global',
+        sourceId: null,
+        sourceName: 'Global',
+        isDisabledHere,
+        canEdit: false,
+        canDelete: false,
+        canDisable: !isDisabledHere,
+        canEnable: isDirectlyDisabled,
+      });
+    }
+
+    return result;
   },
 
-  // ── isInMaintenance (cached) ──────────────────────────────────────────────
+  // ── isInMaintenance (cached, new additive inheritance) ────────────────────
 
+  /**
+   * Check whether a monitor or agent is currently in maintenance.
+   * Additive logic: global + group + own windows, minus any that are disabled at
+   * this scope (directly or via ancestor groups).
+   */
   async isInMaintenance(
     scopeType: 'monitor' | 'agent',
     scopeId: number,
@@ -316,14 +486,50 @@ export const maintenanceService = {
     const cached = getCached(cacheKey);
     if (cached !== null) return cached;
 
-    const windows = scopeType === 'monitor'
-      ? await this.getWindowsAffectingMonitor(scopeId, groupId)
-      : await this.getWindowsAffectingAgent(scopeId, groupId);
-
     const now = new Date();
-    const result = windows.some((w) => isWindowActive(w, now));
-    setCache(cacheKey, result);
-    return result;
+
+    // 1. Ancestor group IDs
+    const ancestorGroupIds: number[] = groupId
+      ? await this.getAncestorGroupIds(groupId)
+      : [];
+
+    // 2. Build set of disabled window IDs for this entity
+    const disabledIds = await this.getDisabledWindowIds(scopeType, scopeId, ancestorGroupIds);
+
+    const disabledArr = disabledIds.size > 0 ? [...disabledIds] : [-1];
+
+    // 3a. Own windows — always included
+    const ownRows = await db<MaintenanceWindowRow>('maintenance_windows')
+      .where({ scope_type: scopeType, scope_id: scopeId, active: true });
+    const ownWindows = ownRows.map(rowToWindow);
+    if (ownWindows.some((w) => isWindowActive(w, now))) {
+      setCache(cacheKey, true);
+      return true;
+    }
+
+    // 3b. Group windows from ancestors (minus disabled)
+    if (ancestorGroupIds.length > 0) {
+      const groupRows = await db<MaintenanceWindowRow>('maintenance_windows')
+        .where({ scope_type: 'group', active: true })
+        .whereIn('scope_id', ancestorGroupIds)
+        .whereNotIn('id', disabledArr);
+      if (groupRows.map(rowToWindow).some((w) => isWindowActive(w, now))) {
+        setCache(cacheKey, true);
+        return true;
+      }
+    }
+
+    // 3c. Global windows (minus disabled)
+    const globalRows = await db<MaintenanceWindowRow>('maintenance_windows')
+      .where({ scope_type: 'global', active: true })
+      .whereNotIn('id', disabledArr);
+    if (globalRows.map(rowToWindow).some((w) => isWindowActive(w, now))) {
+      setCache(cacheKey, true);
+      return true;
+    }
+
+    setCache(cacheKey, false);
+    return false;
   },
 
   /**
@@ -334,11 +540,13 @@ export const maintenanceService = {
     const result = new Set<number>();
     const now = new Date();
 
-    // Fetch all active windows in one query
+    // Fetch all active windows in one query (including global)
     const allWindows = await db<MaintenanceWindowRow>('maintenance_windows')
       .where({ active: true })
       .select('*');
     const windows = allWindows.map(rowToWindow);
+
+    const globalWindows = windows.filter((w) => w.scopeType === 'global');
 
     // Build ancestor map for all unique group IDs
     const groupIds = [...new Set(monitors.map((m) => m.groupId).filter((g): g is number => g !== null))];
@@ -353,23 +561,69 @@ export const maintenanceService = {
       }
     }
 
-    for (const monitor of monitors) {
-      // Own monitor windows
-      const ownWindows = windows.filter((w) => w.scopeType === 'monitor' && w.scopeId === monitor.id);
-      const hasOverride = ownWindows.some((w) => w.isOverride);
+    // Fetch all disables for monitors + their ancestor groups in one query
+    const allMonitorIds = monitors.map((m) => m.id);
+    const allAncestorIds = [...new Set([...ancestorMap.values()].flat())];
 
-      let applicable: MaintenanceWindow[];
-      if (hasOverride) {
-        applicable = ownWindows.filter((w) => w.isOverride);
-      } else {
-        const groupWindows = monitor.groupId
-          ? windows.filter((w) => w.scopeType === 'group' && (ancestorMap.get(monitor.groupId!) ?? []).includes(w.scopeId))
-          : [];
-        applicable = [...ownWindows, ...groupWindows];
+    const disableRows = await db('maintenance_window_disables')
+      .where(function () {
+        this.where('scope_type', 'monitor').whereIn('scope_id', allMonitorIds);
+        if (allAncestorIds.length > 0) {
+          this.orWhere(function () {
+            this.where('scope_type', 'group').whereIn('scope_id', allAncestorIds);
+          });
+        }
+      })
+      .select('window_id', 'scope_type', 'scope_id');
+
+    // Build per-monitor and per-group disable sets
+    const monitorDisables = new Map<number, Set<number>>();
+    const groupDisables = new Map<number, Set<number>>();
+    for (const row of disableRows) {
+      if (row.scope_type === 'monitor') {
+        if (!monitorDisables.has(row.scope_id)) monitorDisables.set(row.scope_id, new Set());
+        monitorDisables.get(row.scope_id)!.add(row.window_id);
+      } else if (row.scope_type === 'group') {
+        if (!groupDisables.has(row.scope_id)) groupDisables.set(row.scope_id, new Set());
+        groupDisables.get(row.scope_id)!.add(row.window_id);
+      }
+    }
+
+    for (const monitor of monitors) {
+      const ancestorIds = monitor.groupId ? (ancestorMap.get(monitor.groupId) ?? []) : [];
+
+      // Effective disabled window IDs for this monitor
+      const disabledIds = new Set<number>();
+      for (const id of (monitorDisables.get(monitor.id) ?? [])) disabledIds.add(id);
+      for (const gid of ancestorIds) {
+        for (const id of (groupDisables.get(gid) ?? [])) disabledIds.add(id);
       }
 
-      if (applicable.some((w) => isWindowActive(w, now))) {
+      // Own windows — always applicable
+      const ownWindows = windows.filter((w) => w.scopeType === 'monitor' && w.scopeId === monitor.id);
+      if (ownWindows.some((w) => isWindowActive(w, now))) {
         result.add(monitor.id);
+        continue;
+      }
+
+      // Group windows from ancestors (minus disabled)
+      const groupWindows = monitor.groupId
+        ? windows.filter((w) =>
+            w.scopeType === 'group' &&
+            ancestorIds.includes(w.scopeId!) &&
+            !disabledIds.has(w.id)
+          )
+        : [];
+      if (groupWindows.some((w) => isWindowActive(w, now))) {
+        result.add(monitor.id);
+        continue;
+      }
+
+      // Global windows (minus disabled)
+      const applicableGlobals = globalWindows.filter((w) => !disabledIds.has(w.id));
+      if (applicableGlobals.some((w) => isWindowActive(w, now))) {
+        result.add(monitor.id);
+        continue;
       }
     }
 
@@ -405,14 +659,12 @@ export const maintenanceService = {
       const active = isWindowActive(window, now);
 
       if (active && !window.lastNotifiedStartAt) {
-        // Window just became active — send start notification
         await this._sendMaintenanceNotification(window, 'start');
         await db('maintenance_windows').where({ id: window.id }).update({
           last_notified_start_at: now,
-          last_notified_end_at: null, // reset end so we notify again if it cycles
+          last_notified_end_at: null,
         });
       } else if (!active && window.lastNotifiedStartAt && !window.lastNotifiedEndAt) {
-        // Window just became inactive — send end notification
         await this._sendMaintenanceNotification(window, 'end');
         await db('maintenance_windows').where({ id: window.id }).update({
           last_notified_end_at: now,
@@ -445,7 +697,6 @@ export const maintenanceService = {
         const plugin = getPlugin(ch.type);
         if (!plugin) continue;
         try {
-          // Resolve SMTP server config if needed (same pattern as notificationService)
           let resolvedConfig: Record<string, unknown> = ch.config;
           if (ch.type === 'smtp' && ch.config?.smtpServerId) {
             const { smtpServerService } = await import('./smtpServer.service');
@@ -464,16 +715,14 @@ export const maintenanceService = {
   },
 
   startJobs(): void {
-    // Cleanup expired one-time windows every 5 minutes
     cleanupTimer = setInterval(() => {
       this.cleanupExpiredOneTime().catch((err) =>
         console.error('[MaintenanceService] Cleanup job error:', err),
       );
     }, 5 * 60 * 1000);
 
-    // Check for maintenance transitions every 60 seconds
     transitionTimer = setInterval(() => {
-      maintenanceCache.clear(); // also refresh the cache every minute
+      maintenanceCache.clear();
       this.checkMaintenanceTransitions().catch((err) =>
         console.error('[MaintenanceService] Transition job error:', err),
       );

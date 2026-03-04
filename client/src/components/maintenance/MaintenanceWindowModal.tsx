@@ -87,7 +87,6 @@ export function MaintenanceWindowModal({ open, onClose, onSave, initial, scopeOp
   const [name, setName] = useState('');
   const [scopeType, setScopeType] = useState<MaintenanceScopeType>('monitor');
   const [scopeId, setScopeId] = useState<number | ''>('');
-  const [isOverride, setIsOverride] = useState(false);
   const [scheduleType, setScheduleType] = useState<MaintenanceScheduleType>('one_time');
   // one_time
   const [startAt, setStartAt] = useState('');
@@ -109,8 +108,7 @@ export function MaintenanceWindowModal({ open, onClose, onSave, initial, scopeOp
     if (initial) {
       setName(initial.name);
       setScopeType(initial.scopeType);
-      setScopeId(initial.scopeId);
-      setIsOverride(initial.isOverride);
+      setScopeId(initial.scopeId ?? '');
       setScheduleType(initial.scheduleType);
       setStartAt(initial.startAt ? initial.startAt.slice(0, 16) : '');
       setEndAt(initial.endAt ? initial.endAt.slice(0, 16) : '');
@@ -125,7 +123,6 @@ export function MaintenanceWindowModal({ open, onClose, onSave, initial, scopeOp
       setName('');
       setScopeType(defaultScopeType ?? 'monitor');
       setScopeId(defaultScopeId ?? '');
-      setIsOverride(false);
       setScheduleType('one_time');
       setStartAt('');
       setEndAt('');
@@ -151,7 +148,7 @@ export function MaintenanceWindowModal({ open, onClose, onSave, initial, scopeOp
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return setError('Name is required.');
-    if (scopeId === '') return setError('Please select a scope target.');
+    if (scopeType !== 'global' && scopeId === '') return setError('Please select a scope target.');
     if (scheduleType === 'one_time' && (!startAt || !endAt)) return setError('Start and end date/time are required.');
     if (scheduleType === 'one_time' && new Date(startAt) >= new Date(endAt)) return setError('End must be after start.');
     if (scheduleType === 'recurring' && recurrenceType === 'weekly' && daysOfWeek.length === 0) return setError('Select at least one day.');
@@ -162,8 +159,7 @@ export function MaintenanceWindowModal({ open, onClose, onSave, initial, scopeOp
       await onSave({
         name: name.trim(),
         scopeType,
-        scopeId: Number(scopeId),
-        isOverride,
+        scopeId: scopeType === 'global' ? null : Number(scopeId),
         scheduleType,
         startAt: scheduleType === 'one_time' ? new Date(startAt).toISOString() : null,
         endAt: scheduleType === 'one_time' ? new Date(endAt).toISOString() : null,
@@ -210,42 +206,35 @@ export function MaintenanceWindowModal({ open, onClose, onSave, initial, scopeOp
           </div>
 
           {/* Scope */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
+          <div className={cn('gap-3', scopeType === 'global' ? 'flex' : 'grid grid-cols-2')}>
+            <div className={scopeType === 'global' ? 'w-1/2' : undefined}>
               <Label>Scope type</Label>
               <Select value={scopeType} onChange={(e) => { setScopeType(e.target.value as MaintenanceScopeType); setScopeId(''); }}>
                 <option value="monitor">Monitor</option>
                 <option value="agent">Agent</option>
                 <option value="group">Group</option>
+                <option value="global">Global — applies to everything</option>
               </Select>
             </div>
-            <div>
-              <Label>Target</Label>
-              <Select value={scopeId} onChange={(e) => setScopeId(Number(e.target.value))}>
-                <option value="">— select —</option>
-                {filteredScopes.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </Select>
-            </div>
+            {scopeType !== 'global' && (
+              <div>
+                <Label>Target</Label>
+                <Select value={scopeId} onChange={(e) => setScopeId(Number(e.target.value))}>
+                  <option value="">— select —</option>
+                  {filteredScopes.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
           </div>
 
-          {/* Override */}
-          {(scopeType === 'monitor' || scopeType === 'agent') && (
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isOverride}
-                onChange={(e) => setIsOverride(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-border bg-bg-tertiary text-accent focus:ring-accent"
-              />
-              <div>
-                <span className="text-sm font-medium text-text-primary">Override group maintenance</span>
-                <p className="text-xs text-text-muted mt-0.5">
-                  When checked, only this window applies — group-level windows are ignored for this target.
-                </p>
-              </div>
-            </label>
+          {/* Global scope info */}
+          {scopeType === 'global' && (
+            <p className="text-xs text-text-muted bg-bg-tertiary border border-border rounded-md px-3 py-2">
+              This window will apply to <strong className="text-text-primary">all groups, monitors and agents</strong>.
+              Individual scopes can disable it if needed.
+            </p>
           )}
 
           {/* Schedule type tabs */}
