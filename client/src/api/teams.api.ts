@@ -20,6 +20,12 @@ export const teamsApi = {
     return res.data.data!;
   },
 
+  /** Platform admin: fetch all teams across all tenants (includes tenantName on each team) */
+  async listAll(): Promise<UserTeam[]> {
+    const res = await apiClient.get<ApiResponse<UserTeam[]>>('/teams?scope=all');
+    return res.data.data!;
+  },
+
   async getById(id: number): Promise<TeamDetail> {
     const res = await apiClient.get<ApiResponse<TeamDetail>>(`/teams/${id}`);
     return res.data.data!;

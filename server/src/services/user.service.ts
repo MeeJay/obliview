@@ -1,6 +1,6 @@
 import { db } from '../db';
 import { hashPassword } from '../utils/crypto';
-import type { User, UserRole } from '@obliview/shared';
+import type { User, UserRole, UserTenantAssignment } from '@obliview/shared';
 
 interface UserRow {
   id: number;
@@ -89,5 +89,49 @@ export const userService = {
   async delete(id: number): Promise<boolean> {
     const count = await db('users').where({ id }).del();
     return count > 0;
+  },
+
+  /** Returns all tenants with this user's membership status and role. */
+  async getUserTenantAssignments(userId: number): Promise<UserTenantAssignment[]> {
+    const rows = await db('tenants as t')
+      .leftJoin('user_tenants as ut', function () {
+        this.on('ut.tenant_id', '=', 't.id').andOnVal('ut.user_id', '=', userId);
+      })
+      .select(
+        't.id as tenantId',
+        't.name as tenantName',
+        't.slug as tenantSlug',
+        db.raw('(ut.user_id IS NOT NULL) as is_member'),
+        db.raw("COALESCE(ut.role, 'member') as role"),
+      )
+      .orderBy('t.name');
+
+    return rows.map((r) => ({
+      tenantId: r.tenantId,
+      tenantName: r.tenantName,
+      tenantSlug: r.tenantSlug,
+      isMember: Boolean(r.is_member),
+      role: r.role as 'admin' | 'member',
+    }));
+  },
+
+  /** Bulk-replaces all tenant memberships for a user. */
+  async setUserTenantAssignments(
+    userId: number,
+    assignments: { tenantId: number; role: 'admin' | 'member' }[],
+  ): Promise<void> {
+    await db.transaction(async (trx) => {
+      await trx('user_tenants').where({ user_id: userId }).del();
+      if (assignments.length > 0) {
+        await trx('user_tenants').insert(
+          assignments.map((a) => ({
+            user_id: userId,
+            tenant_id: a.tenantId,
+            role: a.role,
+            created_at: new Date(),
+          })),
+        );
+      }
+    });
   },
 };

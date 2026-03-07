@@ -2,6 +2,7 @@ import apiClient from './client';
 import type {
   User,
   UserTeam,
+  UserTenantAssignment,
   ApiResponse,
   CreateUserRequest,
   UpdateUserRequest,
@@ -39,5 +40,17 @@ export const usersApi = {
   async getTeams(id: number): Promise<UserTeam[]> {
     const res = await apiClient.get<ApiResponse<UserTeam[]>>(`/users/${id}/teams`);
     return res.data.data!;
+  },
+
+  async getTenants(id: number): Promise<UserTenantAssignment[]> {
+    const res = await apiClient.get<ApiResponse<UserTenantAssignment[]>>(`/users/${id}/tenants`);
+    return res.data.data!;
+  },
+
+  async setTenants(
+    id: number,
+    assignments: { tenantId: number; role: 'admin' | 'member' }[],
+  ): Promise<void> {
+    await apiClient.put(`/users/${id}/tenants`, { assignments });
   },
 };

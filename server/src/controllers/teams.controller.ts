@@ -11,7 +11,11 @@ import type {
 export const teamsController = {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const teams = await teamService.getAll(req.tenantId);
+      // Platform admins can request all teams across tenants via ?scope=all
+      // Otherwise scope to the current tenant from session
+      const isPlatformAdmin = req.session.role === 'admin';
+      const scopeAll = isPlatformAdmin && req.query.scope === 'all';
+      const teams = await teamService.getAll(scopeAll ? null : req.tenantId);
       res.json({ success: true, data: teams });
     } catch (err) {
       next(err);
@@ -37,8 +41,11 @@ export const teamsController = {
 
   async create(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = req.body as CreateTeamInput;
-      const team = await teamService.create(data, req.tenantId);
+      const data = req.body as CreateTeamInput & { tenantId?: number };
+      // Platform admins can specify the target tenant in the body; others use the session tenant
+      const isPlatformAdmin = req.session.role === 'admin';
+      const targetTenantId = (isPlatformAdmin && data.tenantId) ? data.tenantId : req.tenantId;
+      const team = await teamService.create(data, targetTenantId);
       res.status(201).json({ success: true, data: team });
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes('unique')) {

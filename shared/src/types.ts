@@ -426,6 +426,8 @@ export interface UserTeam {
   name: string;
   description: string | null;
   canCreate: boolean;
+  tenantId: number;
+  tenantName?: string; // populated by JOIN in getAll()
   createdAt: string;
   updatedAt: string;
 }
@@ -802,5 +804,14 @@ export interface TenantMembership {
 }
 
 export interface TenantWithRole extends Tenant {
+  role: 'admin' | 'member';
+}
+
+/** Returned by GET /api/users/:id/tenants — all tenants with this user's membership info */
+export interface UserTenantAssignment {
+  tenantId: number;
+  tenantName: string;
+  tenantSlug: string;
+  isMember: boolean;
   role: 'admin' | 'member';
 }

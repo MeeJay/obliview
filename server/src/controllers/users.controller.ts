@@ -125,4 +125,33 @@ export const usersController = {
       next(err);
     }
   },
+
+  // GET /api/users/:id/tenants
+  async getTenants(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const assignments = await userService.getUserTenantAssignments(id);
+      res.json({ success: true, data: assignments });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // PUT /api/users/:id/tenants
+  // Body: { assignments: [{ tenantId: number, role: 'admin' | 'member' }] }
+  async setTenants(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { assignments } = req.body as {
+        assignments: { tenantId: number; role: 'admin' | 'member' }[];
+      };
+      if (!Array.isArray(assignments)) {
+        throw new AppError(400, 'assignments must be an array');
+      }
+      await userService.setUserTenantAssignments(id, assignments);
+      res.json({ success: true, message: 'Tenant assignments updated' });
+    } catch (err) {
+      next(err);
+    }
+  },
 };

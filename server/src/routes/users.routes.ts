@@ -24,4 +24,8 @@ router.delete('/:id', usersController.delete);
 // Team membership listing
 router.get('/:id/teams', usersController.getTeams);
 
+// Tenant assignment management
+router.get('/:id/tenants', usersController.getTenants);
+router.put('/:id/tenants', usersController.setTenants);
+
 export default router;

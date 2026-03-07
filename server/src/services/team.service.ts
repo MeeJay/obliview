@@ -7,6 +7,7 @@ interface TeamRow {
   description: string | null;
   can_create: boolean;
   tenant_id: number;
+  tenant_name?: string; // populated by JOIN when fetching all tenants
   created_at: Date;
   updated_at: Date;
 }
@@ -25,6 +26,8 @@ function rowToTeam(row: TeamRow): UserTeam {
     name: row.name,
     description: row.description,
     canCreate: row.can_create,
+    tenantId: row.tenant_id,
+    tenantName: row.tenant_name,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -41,8 +44,20 @@ function rowToPermission(row: PermissionRow): TeamPermission {
 }
 
 export const teamService = {
-  async getAll(tenantId: number): Promise<UserTeam[]> {
-    const rows = await db<TeamRow>('user_teams').where({ tenant_id: tenantId }).orderBy('name');
+  /**
+   * Returns teams scoped to a tenant.
+   * If tenantId is null (platform admin cross-tenant view), returns ALL teams across
+   * all tenants, joined with tenant name.
+   */
+  async getAll(tenantId: number | null): Promise<UserTeam[]> {
+    const query = db('user_teams')
+      .join('tenants', 'user_teams.tenant_id', 'tenants.id')
+      .select('user_teams.*', 'tenants.name as tenant_name')
+      .orderBy('user_teams.name');
+    if (tenantId !== null) {
+      query.where('user_teams.tenant_id', tenantId);
+    }
+    const rows = await query;
     return rows.map(rowToTeam);
   },
 

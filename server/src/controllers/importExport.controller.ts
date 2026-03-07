@@ -100,6 +100,8 @@ export const importExportController = {
       const all         = requested.length === 0 || requested.includes('all');
       const want        = (s: ExportSection) => all || requested.includes(s);
 
+      const tenantId = req.session.currentTenantId ?? 1;
+
       const payload: Record<string, unknown> = {
         version:    1,
         exportedAt: new Date().toISOString(),
@@ -120,7 +122,7 @@ export const importExportController = {
 
       async function getGroupUuidMap(): Promise<Map<number, string>> {
         if (!_groupUuidMap) {
-          const rows = await db('monitor_groups').select('id', 'uuid');
+          const rows = await db('monitor_groups').where({ tenant_id: tenantId }).select('id', 'uuid');
           _groupUuidMap = new Map(rows.map((r: { id: number; uuid: string }) => [r.id, r.uuid]));
         }
         return _groupUuidMap;
@@ -128,7 +130,7 @@ export const importExportController = {
 
       async function getMonitorUuidMap(): Promise<Map<number, string>> {
         if (!_monitorUuidMap) {
-          const rows = await db('monitors').select('id', 'uuid');
+          const rows = await db('monitors').where({ tenant_id: tenantId }).select('id', 'uuid');
           _monitorUuidMap = new Map(rows.map((r: { id: number; uuid: string }) => [r.id, r.uuid]));
         }
         return _monitorUuidMap;
@@ -136,7 +138,7 @@ export const importExportController = {
 
       // ── Monitor Groups (kind='monitor') ─────────────────────────────────────
       if (want('monitorGroups')) {
-        const groups  = await db('monitor_groups').where({ kind: 'monitor' }).orderBy('sort_order').orderBy('name');
+        const groups  = await db('monitor_groups').where({ kind: 'monitor', tenant_id: tenantId }).orderBy('sort_order').orderBy('name');
         const selfMap = new Map<number, string>(groups.map((g: any) => [g.id as number, g.uuid as string]));
 
         payload.monitorGroups = groups.map((g: any) => ({
@@ -152,7 +154,7 @@ export const importExportController = {
 
       // ── Monitors (exclude agent-type monitors) ───────────────────────────────
       if (want('monitors')) {
-        const monitors = await db('monitors').whereNot({ type: 'agent' }).orderBy('id');
+        const monitors = await db('monitors').where({ tenant_id: tenantId }).whereNot({ type: 'agent' }).orderBy('id');
         const guMap    = await getGroupUuidMap();
 
         payload.monitors = monitors.map((m: any) => ({
@@ -210,7 +212,7 @@ export const importExportController = {
 
       // ── Settings (all scopes) ────────────────────────────────────────────────
       if (want('settings')) {
-        const settings = await db('settings').orderBy('scope').orderBy('scope_id').orderBy('key');
+        const settings = await db('settings').where({ tenant_id: tenantId }).orderBy('scope').orderBy('scope_id').orderBy('key');
         const guMap    = await getGroupUuidMap();
         const muMap    = await getMonitorUuidMap();
 
@@ -230,7 +232,7 @@ export const importExportController = {
 
       // ── Notification Channels + Bindings ─────────────────────────────────────
       if (want('notificationChannels')) {
-        const channels = await db('notification_channels').orderBy('id');
+        const channels = await db('notification_channels').where({ tenant_id: tenantId }).orderBy('id');
         const bindings = await db('notification_bindings').orderBy('channel_id');
         const guMap    = await getGroupUuidMap();
         const muMap    = await getMonitorUuidMap();
@@ -258,7 +260,7 @@ export const importExportController = {
 
       // ── Agent Groups (kind='agent') ──────────────────────────────────────────
       if (want('agentGroups')) {
-        const groups  = await db('monitor_groups').where({ kind: 'agent' }).orderBy('sort_order').orderBy('name');
+        const groups  = await db('monitor_groups').where({ kind: 'agent', tenant_id: tenantId }).orderBy('sort_order').orderBy('name');
         const selfMap = new Map<number, string>(groups.map((g: any) => [g.id as number, g.uuid as string]));
 
         payload.agentGroups = groups.map((g: any) => ({
@@ -275,7 +277,7 @@ export const importExportController = {
       // ── Remediation Actions ──────────────────────────────────────────────────
       if (want('remediationActions')) {
         const includeSSHCredentials = req.query.includeSSHCredentials === 'true';
-        const actions = await db('remediation_actions').orderBy('id');
+        const actions = await db('remediation_actions').where({ tenant_id: tenantId }).orderBy('id');
 
         payload.remediationActions = actions.map((a: any) => {
           let config = a.config;
@@ -307,7 +309,7 @@ export const importExportController = {
       // ── Remediation Bindings ─────────────────────────────────────────────────
       if (want('remediationBindings')) {
         const bindings  = await db('remediation_bindings').orderBy('id');
-        const actions   = await db('remediation_actions').select('id', 'uuid');
+        const actions   = await db('remediation_actions').where({ tenant_id: tenantId }).select('id', 'uuid');
         const guMap     = await getGroupUuidMap();
         const muMap     = await getMonitorUuidMap();
         const actionUuidById = new Map<number, string>(
@@ -341,7 +343,7 @@ export const importExportController = {
 
       // ── Teams + Permissions (no memberships — users are never exported) ───────
       if (want('teams')) {
-        const teams       = await db('user_teams').orderBy('id');
+        const teams       = await db('user_teams').where({ tenant_id: tenantId }).orderBy('id');
         const permissions = await db('team_permissions').orderBy('team_id');
         const guMap       = await getGroupUuidMap();
         const muMap       = await getMonitorUuidMap();
@@ -395,25 +397,26 @@ export const importExportController = {
         throw new AppError(400, 'conflictStrategy must be "update", "generateNew", or "ignore"');
 
       const want = (s: ExportSection) => sections.includes(s);
+      const tenantId = req.session.currentTenantId ?? 1;
 
       type SectionResult = { created: number; updated: number; skipped: number };
       const results: Record<string, SectionResult> = {};
 
       await db.transaction(async (trx) => {
 
-        // ── Pre-populate UUID → DB id maps ────────────────────────────────────
+        // ── Pre-populate UUID → DB id maps (scoped to current tenant) ─────────
         const groupIdByUuid:   Map<string, number> = new Map();
         const monitorIdByUuid: Map<string, number> = new Map();
         const channelIdByUuid: Map<string, number> = new Map();
         const teamIdByUuid:    Map<string, number> = new Map();
 
-        for (const r of await trx('monitor_groups').select('id', 'uuid'))
+        for (const r of await trx('monitor_groups').where({ tenant_id: tenantId }).select('id', 'uuid'))
           groupIdByUuid.set(r.uuid, r.id);
-        for (const r of await trx('monitors').select('id', 'uuid'))
+        for (const r of await trx('monitors').where({ tenant_id: tenantId }).select('id', 'uuid'))
           monitorIdByUuid.set(r.uuid, r.id);
-        for (const r of await trx('notification_channels').select('id', 'uuid'))
+        for (const r of await trx('notification_channels').where({ tenant_id: tenantId }).select('id', 'uuid'))
           channelIdByUuid.set(r.uuid, r.id);
-        for (const r of await trx('user_teams').select('id', 'uuid'))
+        for (const r of await trx('user_teams').where({ tenant_id: tenantId }).select('id', 'uuid'))
           teamIdByUuid.set(r.uuid, r.id);
 
         /**
@@ -515,6 +518,7 @@ export const importExportController = {
                 is_general:          (g.isGeneral as boolean) ?? false,
                 group_notifications: (g.groupNotifications as boolean) ?? false,
                 kind:                'monitor',
+                tenant_id:           tenantId,
               }).returning('*');
 
               await insertGroupClosure(trx, row.id, parentId);
@@ -600,6 +604,7 @@ export const importExportController = {
               value_watcher_threshold:    (m.valueWatcherThreshold as number | null) ?? null,
               value_watcher_threshold_max:(m.valueWatcherThresholdMax as number | null) ?? null,
               value_watcher_headers:      m.valueWatcherHeaders ? JSON.stringify(m.valueWatcherHeaders) : null,
+              tenant_id:                  tenantId,
               updated_at:                 new Date(),
             };
 
@@ -638,8 +643,8 @@ export const importExportController = {
             const value = typeof s.value === 'string' ? s.value : JSON.stringify(s.value);
 
             // Delete-then-insert avoids NULL-uniqueness ambiguity for global settings
-            await trx('settings').where({ scope, scope_id: scopeId, key: s.key }).del();
-            await trx('settings').insert({ scope, scope_id: scopeId, key: s.key, value, updated_at: new Date() });
+            await trx('settings').where({ scope, scope_id: scopeId, key: s.key, tenant_id: tenantId }).del();
+            await trx('settings').insert({ scope, scope_id: scopeId, key: s.key, value, tenant_id: tenantId, updated_at: new Date() });
             created++;
           }
           results.settings = { created, updated: 0, skipped };
@@ -661,6 +666,7 @@ export const importExportController = {
               type:       c.type,
               config:     typeof c.config === 'string' ? c.config : JSON.stringify(c.config ?? {}),
               is_enabled: (c.isEnabled as boolean) ?? true,
+              tenant_id:  tenantId,
               updated_at: new Date(),
             };
 
@@ -753,6 +759,7 @@ export const importExportController = {
                 kind:               'agent',
                 agent_thresholds:   g.agentThresholds  ? JSON.stringify(g.agentThresholds)  : null,
                 agent_group_config: g.agentGroupConfig ? JSON.stringify(g.agentGroupConfig) : null,
+                tenant_id:          tenantId,
               }).returning('*');
 
               await insertGroupClosure(trx, row.id, parentId);
@@ -780,6 +787,7 @@ export const importExportController = {
               name:        t.name,
               description: (t.description as string | null) ?? null,
               can_create:  (t.canCreate as boolean) ?? false,
+              tenant_id:   tenantId,
               updated_at:  new Date(),
             };
 
@@ -793,8 +801,8 @@ export const importExportController = {
               teamId = decision.existingId;
               updated++;
             } else {
-              // Skip if a different team already owns this name
-              const nameConflict = await trx('user_teams').where({ name: t.name }).first();
+              // Skip if a different team in this tenant already owns this name
+              const nameConflict = await trx('user_teams').where({ name: t.name, tenant_id: tenantId }).first();
               if (nameConflict) { skipped++; continue; }
 
               const [inserted] = await trx('user_teams').insert({ ...teamRow, uuid: decision.uuid }).returning('id');
@@ -832,9 +840,9 @@ export const importExportController = {
         if (want('remediationActions') && Array.isArray(data.remediationActions)) {
           let created = 0, updated = 0, skipped = 0;
 
-          // Build UUID map for remediation_actions
+          // Build UUID map for remediation_actions (scoped to tenant)
           const actionIdByUuid: Map<string, number> = new Map();
-          for (const r of await trx('remediation_actions').select('id', 'uuid'))
+          for (const r of await trx('remediation_actions').where({ tenant_id: tenantId }).select('id', 'uuid'))
             actionIdByUuid.set(r.uuid, r.id);
 
           // Also track newly imported actions so bindings can reference them in same run
@@ -860,6 +868,7 @@ export const importExportController = {
               type:       a.type,
               config:     configVal,
               enabled:    (a.enabled as boolean) ?? true,
+              tenant_id:  tenantId,
               updated_at: new Date(),
             };
 
@@ -897,9 +906,9 @@ export const importExportController = {
           let actionIdByUuid: Map<string, number> =
             (trx as any).__remediationActionIdByUuid ?? new Map<string, number>();
 
-          // If remediationActions wasn't imported in this run, load from DB
+          // If remediationActions wasn't imported in this run, load from DB (scoped to tenant)
           if (actionIdByUuid.size === 0) {
-            const rows = await trx('remediation_actions').select('id', 'uuid');
+            const rows = await trx('remediation_actions').where({ tenant_id: tenantId }).select('id', 'uuid');
             actionIdByUuid = new Map(rows.map((r: { id: number; uuid: string }) => [r.uuid, r.id]));
           }
 
