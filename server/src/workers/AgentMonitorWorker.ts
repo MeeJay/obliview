@@ -22,13 +22,14 @@ export class AgentMonitorWorker extends BaseMonitorWorker {
     // from every code path (offline watchdog, normal push, device state changes).
     let result: CheckResult;
 
-    // Fetch device for status + raw settings + override flag
+    // Fetch device for status + raw settings + override flag + updating_since
     const device = await db('agent_devices')
       .where({ id: agentDeviceId })
-      .select('check_interval_seconds', 'status', 'heartbeat_monitoring', 'group_id', 'agent_max_missed_pushes', 'override_group_settings')
+      .select('check_interval_seconds', 'status', 'heartbeat_monitoring', 'group_id', 'agent_max_missed_pushes', 'override_group_settings', 'updating_since')
       .first() as {
         check_interval_seconds: number; status: string; heartbeat_monitoring: boolean;
         group_id: number | null; agent_max_missed_pushes: number | null; override_group_settings: boolean;
+        updating_since: Date | null;
       } | undefined;
 
     if (!device) {
@@ -39,6 +40,28 @@ export class AgentMonitorWorker extends BaseMonitorWorker {
       result = { status: 'paused', message: 'Agent device is suspended' };
     } else if (device.status === 'pending') {
       result = { status: 'pending', message: 'Waiting for device approval' };
+    } else if (device.updating_since !== null) {
+      // Agent notified us it is self-updating.
+      // Within 10 minutes: show "updating" status — no offline alert, excluded from uptime.
+      // After 10 minutes: cleanupStuckUpdating() will clear updating_since and normal
+      // offline detection resumes on the next worker cycle.
+      const updatingAgeMs = Date.now() - new Date(device.updating_since).getTime();
+      if (updatingAgeMs < 10 * 60 * 1000) {
+        result = { status: 'pending', message: 'Agent is self-updating...' };
+        // Emit 'updating' to the UI (distinct from 'pending') via a dedicated event payload
+        const tenantId = await this.resolveTenantId();
+        const updatingPayload = { deviceId: agentDeviceId, status: 'updating', violations: [], violationKeys: [] };
+        if (tenantId !== null) {
+          this.io.to(`tenant:${tenantId}:admin`).emit(SOCKET_EVENTS.AGENT_STATUS_CHANGED, updatingPayload);
+        }
+        this.io.to('role:admin').emit(SOCKET_EVENTS.AGENT_STATUS_CHANGED, updatingPayload);
+        return result; // skip the generic AGENT_STATUS_CHANGED emit below
+      }
+      // Updating window expired — cleanupStuckUpdating() will clear this shortly.
+      // Fall through to normal offline detection (snapshot will be stale → 'down').
+      const snapshot = agentPushData.get(agentDeviceId);
+      result = snapshot ? { status: 'down', message: 'Update timed out — device offline' }
+                        : { status: 'down', message: 'Update timed out — no data received' };
     } else {
       // Check for a recent push
       const snapshot = agentPushData.get(agentDeviceId);

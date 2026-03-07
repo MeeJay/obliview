@@ -58,6 +58,8 @@ interface AgentDeviceRow {
   uninstall_commanded_at: Date | null;
   // migration 039
   tenant_id: number;
+  // migration 040
+  updating_since: Date | null;
 }
 
 function rowToApiKey(row: AgentApiKeyRow): AgentApiKey {
@@ -119,6 +121,7 @@ function rowToDevice(row: AgentDeviceRow, groupConfig?: AgentGroupConfig | null,
       : (row.display_config as AgentDisplayConfig | null)) ?? null,
     pendingCommand: row.pending_command ?? null,
     uninstallCommandedAt: row.uninstall_commanded_at ? row.uninstall_commanded_at.toISOString() : null,
+    updatingSince: row.updating_since ? row.updating_since.toISOString() : null,
   };
 }
 
@@ -611,16 +614,21 @@ export const agentService = {
         .returning('*') as AgentDeviceRow[];
       device = rowToDevice(row);
     } else {
-      // Update device metadata
+      // Update device metadata — clear updating_since if set (agent came back after update)
+      const metadataUpdate: Record<string, unknown> = {
+        hostname: payload.hostname,
+        ip: clientIp,
+        agent_version: payload.agentVersion,
+        os_info: payload.osInfo ? JSON.stringify(payload.osInfo) : null,
+        updated_at: new Date(),
+      };
+      if (device.updatingSince) {
+        metadataUpdate.updating_since = null;
+        logger.info(`Agent ${device.id} (${device.hostname}) came back online after update.`);
+      }
       await db('agent_devices')
         .where({ id: device.id })
-        .update({
-          hostname: payload.hostname,
-          ip: clientIp,
-          agent_version: payload.agentVersion,
-          os_info: payload.osInfo ? JSON.stringify(payload.osInfo) : null,
-          updated_at: new Date(),
-        });
+        .update(metadataUpdate);
 
       // Refresh
       device = (await this.getDeviceByUuid(deviceUuid))!;
@@ -919,6 +927,58 @@ export const agentService = {
     } catch { /* not found */ }
 
     return { version: '0.0.0' };
+  },
+
+  /**
+   * Mark a device as "updating" — called when the agent notifies us it is
+   * about to self-update.  Sets updating_since to NOW() and emits the
+   * AGENT_STATUS_CHANGED event so the UI shows the "UPDATING" badge immediately.
+   */
+  async setDeviceUpdating(deviceId: number, tenantId: number): Promise<void> {
+    await db('agent_devices')
+      .where({ id: deviceId })
+      .update({ updating_since: new Date(), updated_at: new Date() });
+
+    const device = await db('agent_devices').where({ id: deviceId }).select('hostname', 'name').first() as
+      { hostname: string; name: string | null } | undefined;
+    const label = device?.name ?? device?.hostname ?? `#${deviceId}`;
+    logger.info(`Agent ${deviceId} (${label}) is self-updating.`);
+
+    // Notify connected admins immediately
+    if (_io) {
+      const payload = { deviceId, status: 'updating', violations: [], violationKeys: [] };
+      if (tenantId) {
+        _io.to(`tenant:${tenantId}:admin`).emit(SOCKET_EVENTS.AGENT_STATUS_CHANGED, payload);
+      }
+      _io.to('role:admin').emit(SOCKET_EVENTS.AGENT_STATUS_CHANGED, payload);
+    }
+  },
+
+  /**
+   * Cleanup job: clear updating_since for devices that have been stuck in the
+   * updating state for more than 10 minutes without reconnecting.
+   * After clearing, the normal offline detection takes over and sends
+   * the standard "device offline" alert.
+   */
+  async cleanupStuckUpdating(): Promise<void> {
+    const cutoff = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes ago
+    const rows = await db('agent_devices')
+      .whereNotNull('updating_since')
+      .where('updating_since', '<', cutoff)
+      .select('id', 'hostname', 'name') as { id: number; hostname: string; name: string | null }[];
+
+    if (rows.length === 0) return;
+
+    const ids = rows.map(r => r.id);
+    await db('agent_devices')
+      .whereIn('id', ids)
+      .update({ updating_since: null, updated_at: new Date() });
+
+    for (const row of rows) {
+      const label = row.name ?? row.hostname;
+      logger.warn(`Agent ${row.id} (${label}) update timed out — resuming offline detection.`);
+    }
+    logger.info(`Agent updating cleanup: cleared ${ids.length} stuck update(s).`);
   },
 
   getDesktopVersion(): { version: string } {

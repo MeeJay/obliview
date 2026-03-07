@@ -5,6 +5,7 @@ import { agentAuth } from '../middleware/agentAuth';
 import { requireTenant } from '../middleware/tenant';
 import {
   agentPush,
+  notifyingUpdate,
   agentVersion,
   desktopVersion,
   agentDownload,
@@ -32,6 +33,9 @@ const router = Router();
 
 // Agent push — authenticated via X-API-Key header
 router.post('/push', agentAuth, agentPush);
+
+// Pre-update notification — agent calls this before self-updating
+router.post('/notifying-update', agentAuth, notifyingUpdate);
 
 // Agent auto-update endpoints
 router.get('/version', agentVersion);

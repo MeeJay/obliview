@@ -9,7 +9,7 @@ import {
   MemoryStick, Wifi, RotateCcw,
 } from 'lucide-react';
 import type { AgentDevice, AgentThresholds, AgentMetricThreshold, AgentTempThreshold, AgentDisplayConfig, NotificationChannel } from '@obliview/shared';
-import { DEFAULT_AGENT_THRESHOLDS } from '@obliview/shared';
+import { DEFAULT_AGENT_THRESHOLDS, SOCKET_EVENTS } from '@obliview/shared';
 import { AgentDisplayConfigModal } from '../components/agent/AgentDisplayConfigModal';
 import { agentApi } from '../api/agent.api';
 import { monitorsApi } from '../api/monitors.api';
@@ -2302,6 +2302,9 @@ export function AgentDetailPage() {
   const [configModalSection, setConfigModalSection] = useState<'cpu' | 'ram' | 'gpu' | 'drives' | 'network' | 'temps'>('cpu');
   const [configModalOpen, setConfigModalOpen] = useState(false);
 
+  // Live operational status pushed by socket (e.g. 'updating')
+  const [liveStatus, setLiveStatus] = useState<string | null>(null);
+
   const openConfigModal = (section: 'cpu' | 'ram' | 'gpu' | 'drives' | 'network' | 'temps') => {
     setConfigModalSection(section);
     setConfigModalOpen(true);
@@ -2396,6 +2399,20 @@ export function AgentDetailPage() {
     return () => { socket.off('agentPush', handler); };
   }, [id]);
 
+  // Track AGENT_STATUS_CHANGED for live 'updating' badge
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    const handler = (data: { deviceId: number; status: string }) => {
+      if (data.deviceId !== id) return;
+      setLiveStatus(data.status);
+      // When agent comes back online, clear liveStatus so normal status takes over
+      if (data.status !== 'updating') setLiveStatus(null);
+    };
+    socket.on(SOCKET_EVENTS.AGENT_STATUS_CHANGED, handler);
+    return () => { socket.off(SOCKET_EVENTS.AGENT_STATUS_CHANGED, handler); };
+  }, [id]);
+
   // Fetch historical heartbeat data when switching away from realtime
   useEffect(() => {
     const monitorId = snapshot?.monitorId;
@@ -2465,13 +2482,17 @@ export function AgentDetailPage() {
 
   const m = snapshot?.metrics ?? null;
   const isOnline = !!snapshot && (Date.now() - new Date(snapshot.receivedAt).getTime()) < (device.checkIntervalSeconds ?? 60) * 2000;
-  const overallStatus = !isOnline ? 'offline' : (snapshot?.overallStatus ?? 'pending');
+  const isUpdating = liveStatus === 'updating' ||
+    (device.updatingSince != null &&
+      Date.now() - new Date(device.updatingSince).getTime() < 10 * 60 * 1000);
+  const overallStatus = isUpdating ? 'updating' : (!isOnline ? 'offline' : (snapshot?.overallStatus ?? 'pending'));
   const violations = snapshot?.violations ?? [];
   const sc = {
-    up:      { dot: 'bg-status-up',   text: 'text-status-up',   label: t('groups.detail.online'),  glow: 'shadow-[0_0_8px_2px] shadow-status-up/50' },
-    alert:   { dot: 'bg-orange-500',  text: 'text-orange-400',  label: t('groups.detail.alert'),   glow: 'shadow-[0_0_8px_2px] shadow-orange-500/50' },
-    offline: { dot: 'bg-text-muted',  text: 'text-text-muted',  label: t('groups.detail.offline'), glow: '' },
-    pending: { dot: 'bg-yellow-500',  text: 'text-yellow-400',  label: t('groups.detail.pending'), glow: '' },
+    up:       { dot: 'bg-status-up',   text: 'text-status-up',   label: t('groups.detail.online'),  glow: 'shadow-[0_0_8px_2px] shadow-status-up/50' },
+    alert:    { dot: 'bg-orange-500',  text: 'text-orange-400',  label: t('groups.detail.alert'),   glow: 'shadow-[0_0_8px_2px] shadow-orange-500/50' },
+    offline:  { dot: 'bg-text-muted',  text: 'text-text-muted',  label: t('groups.detail.offline'), glow: '' },
+    pending:  { dot: 'bg-yellow-500',  text: 'text-yellow-400',  label: t('groups.detail.pending'), glow: '' },
+    updating: { dot: 'bg-blue-500',    text: 'text-blue-400',    label: 'Updating',                 glow: 'shadow-[0_0_8px_2px] shadow-blue-500/40' },
   }[overallStatus] ?? { dot: 'bg-text-muted', text: 'text-text-muted', label: overallStatus, glow: '' };
   const osLabel = device.osInfo
     ? `${device.osInfo.distro ?? device.osInfo.platform ?? ''} ${device.osInfo.release ?? ''}`.trim()
@@ -2544,7 +2565,10 @@ export function AgentDetailPage() {
                   </span>
                 )}
                 <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${sc.text}`}>
-                  <span className={`inline-block w-2.5 h-2.5 rounded-full ${sc.dot} ${sc.glow}`} />
+                  {overallStatus === 'updating'
+                    ? <RefreshCw size={10} className="animate-spin" />
+                    : <span className={`inline-block w-2.5 h-2.5 rounded-full ${sc.dot} ${sc.glow}`} />
+                  }
                   {sc.label}
                 </span>
               </div>

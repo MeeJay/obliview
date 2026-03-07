@@ -75,6 +75,7 @@ async function main() {
   const agentCleanupTimer = setInterval(async () => {
     try {
       await agentService.cleanupUninstalledDevices();
+      await agentService.cleanupStuckUpdating();
     } catch (err) {
       logger.error(err, 'Agent cleanup job failed');
     }

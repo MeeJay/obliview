@@ -215,6 +215,11 @@ func applyUpdateIfNewer(cfg *Config, remoteVersion string) {
 
 	log.Printf("Auto-update: new version available %s → %s, downloading...", agentVersion, remoteVersion)
 
+	// Notify the server we are about to go offline for an update.
+	// This sets the "UPDATING" badge in the UI and suppresses offline alerts
+	// for up to 10 minutes, so admins are not paged during a routine update.
+	notifyServerUpdating(cfg)
+
 	// On Windows we download the full MSI so that the installer handles all
 	// dependencies (PawnIO kernel driver, service registration, etc.).
 	// On other platforms we download the bare binary.

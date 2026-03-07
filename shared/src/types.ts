@@ -683,6 +683,13 @@ export interface AgentDevice {
    * Used by the cleanup job to auto-delete the device ~10 minutes after delivery.
    */
   uninstallCommandedAt?: string | null;
+  /**
+   * Set when the agent notifies the server it is about to self-update.
+   * While set (and within 10 minutes), the device shows "UPDATING" status and
+   * is excluded from downtime / uptime calculations.
+   * Cleared on the next successful push, or by the cleanup job after 10 minutes.
+   */
+  updatingSince?: string | null;
   inMaintenance?: boolean;
 }
 

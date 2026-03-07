@@ -40,6 +40,31 @@ export async function agentPush(req: Request, res: Response): Promise<void> {
   }
 }
 
+// ── Pre-update notification (called by agent before self-updating) ────────────
+
+export async function notifyingUpdate(req: Request, res: Response): Promise<void> {
+  try {
+    const agentApiKeyId = (req as unknown as { agentApiKeyId: number; agentTenantId: number }).agentApiKeyId;
+    const agentTenantId = (req as unknown as { agentApiKeyId: number; agentTenantId: number }).agentTenantId;
+    const deviceUuid = req.headers['x-device-uuid'] as string | undefined;
+    if (!deviceUuid) {
+      res.status(400).json({ error: 'X-Device-UUID header required' });
+      return;
+    }
+    // Identify device — must belong to the authenticated API key
+    const device = await agentService.getDeviceByUuid(deviceUuid);
+    if (!device || device.apiKeyId !== agentApiKeyId) {
+      res.status(404).json({ error: 'Device not found' });
+      return;
+    }
+    await agentService.setDeviceUpdating(device.id, agentTenantId);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 // ── Public: version + download ──────────────────────────────────────────────
 
 export function agentVersion(_req: Request, res: Response): void {

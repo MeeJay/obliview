@@ -492,6 +492,9 @@ export function AdminAgentPage() {
   const [approvingDevice, setApprovingDevice] = useState<AgentDevice | null>(null);
   const [editingDevice, setEditingDevice] = useState<AgentDevice | null>(null);
 
+  // ── Live operational status (socket) ─────────────────────────────────────────
+  const [liveAgentStatus, setLiveAgentStatus] = useState<Map<number, string>>(new Map());
+
   // ── Bulk select state ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
@@ -560,13 +563,24 @@ export function AdminAgentPage() {
       });
     };
 
+    // Track live operational status per device (e.g. 'updating')
+    const onAgentStatusChanged = (data: { deviceId: number; status: string }) => {
+      setLiveAgentStatus(prev => {
+        const next = new Map(prev);
+        next.set(data.deviceId, data.status);
+        return next;
+      });
+    };
+
     socket.on('agentPush', onPush);
     socket.on(SOCKET_EVENTS.AGENT_DEVICE_UPDATED, onDeviceUpdated);
     socket.on(SOCKET_EVENTS.AGENT_DEVICE_DELETED, onDeviceDeleted);
+    socket.on(SOCKET_EVENTS.AGENT_STATUS_CHANGED, onAgentStatusChanged);
     return () => {
       socket.off('agentPush', onPush);
       socket.off(SOCKET_EVENTS.AGENT_DEVICE_UPDATED, onDeviceUpdated);
       socket.off(SOCKET_EVENTS.AGENT_DEVICE_DELETED, onDeviceDeleted);
+      socket.off(SOCKET_EVENTS.AGENT_STATUS_CHANGED, onAgentStatusChanged);
     };
   }, []);
 
@@ -958,7 +972,19 @@ export function AdminAgentPage() {
                           : '—'}
                       </td>
                       <td className="px-4 py-3 text-text-muted">{device.agentVersion ?? '—'}</td>
-                      <td className="px-4 py-3"><StatusBadge status={device.status} /></td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <StatusBadge status={device.status} />
+                          {(liveAgentStatus.get(device.id) === 'updating' ||
+                            (device.updatingSince != null &&
+                              Date.now() - new Date(device.updatingSince).getTime() < 10 * 60 * 1000)) && (
+                            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-blue-500/10 text-blue-400">
+                              <RefreshCw size={10} className="animate-spin" />
+                              Updating
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-text-muted text-xs">{formatDate(device.createdAt)}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
