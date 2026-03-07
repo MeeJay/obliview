@@ -22,7 +22,7 @@ function timeAgo(ts: number): string {
 
 export function NotificationCenter() {
   const [open, setOpen] = useState(false);
-  const { alerts, unreadCount, clearAll, markAllRead, removeAlert } = useLiveAlertsStore();
+  const { alerts, unreadCount, enabled, setEnabled, clearAll, markAllRead, removeAlert } = useLiveAlertsStore();
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -63,7 +63,11 @@ export function NotificationCenter() {
         title="Notification Center"
         className="relative flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
       >
-        <Bell size={14} className={alerts.length > 0 ? 'text-accent' : 'text-text-muted'} />
+        <Bell
+          size={14}
+          className={enabled ? 'text-accent' : 'text-text-muted'}
+        />
+        {/* Badge: always shown when there are unread notifications */}
         {unreadCount > 0 && (
           <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none">
             {unreadCount > 99 ? '99+' : unreadCount}
@@ -78,32 +82,56 @@ export function NotificationCenter() {
           className="absolute right-0 top-8 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-bg-secondary shadow-2xl overflow-hidden"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <h3 className="text-sm font-semibold text-text-primary">Notifications</h3>
-            <div className="flex items-center gap-2">
-              {alerts.length > 0 && (
-                <>
-                  <button
-                    onClick={markAllRead}
-                    title="Mark all as read"
-                    className="text-text-muted hover:text-text-primary transition-colors"
-                  >
-                    <CheckCheck size={14} />
-                  </button>
-                  <button
-                    onClick={clearAll}
-                    title="Clear all"
-                    className="text-text-muted hover:text-text-primary transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </>
-              )}
+          <div className="px-4 py-3 border-b border-border space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-text-primary">Notifications</h3>
+              <div className="flex items-center gap-2">
+                {alerts.length > 0 && (
+                  <>
+                    <button
+                      onClick={markAllRead}
+                      title="Mark all as read"
+                      className="text-text-muted hover:text-text-primary transition-colors"
+                    >
+                      <CheckCheck size={14} />
+                    </button>
+                    <button
+                      onClick={clearAll}
+                      title="Clear all"
+                      className="text-text-muted hover:text-text-primary transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setOpen(false)}
+                  className="text-text-muted hover:text-text-primary transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Live alerts toggle */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-text-muted">
+                {enabled ? 'Live alerts enabled' : 'Live alerts disabled'}
+              </span>
               <button
-                onClick={() => setOpen(false)}
-                className="text-text-muted hover:text-text-primary transition-colors"
+                onClick={() => setEnabled(!enabled)}
+                title={enabled ? 'Disable live alert pop-ups' : 'Enable live alert pop-ups'}
+                className={cn(
+                  'relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors focus:outline-none',
+                  enabled ? 'bg-accent' : 'bg-text-muted/30',
+                )}
               >
-                <X size={14} />
+                <span
+                  className={cn(
+                    'inline-block h-3 w-3 rounded-full bg-white shadow transition-transform',
+                    enabled ? 'translate-x-3.5' : 'translate-x-0.5',
+                  )}
+                />
               </button>
             </div>
           </div>
