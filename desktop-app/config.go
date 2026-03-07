@@ -7,10 +7,13 @@ import (
 )
 
 // TabConfig holds the multi-tenant tab-cycling preferences for the desktop app.
+// The two modes are independent and can both be active simultaneously:
+//   - AutoCycle    : round-robin through all tenants every AutoCycleIntervalS seconds
+//   - FollowAlerts : switch immediately to a tenant that receives a new unread alert
 type TabConfig struct {
-	CycleEnabled   bool   `json:"cycleEnabled"`
-	CycleIntervalS int    `json:"cycleIntervalS"` // seconds between automatic tenant switches
-	CycleMode      string `json:"cycleMode"`      // "all" (round-robin) | "recent" (follow latest alert)
+	AutoCycleEnabled    bool `json:"autoCycleEnabled"`
+	AutoCycleIntervalS  int  `json:"autoCycleIntervalS"`  // seconds between automatic tenant switches
+	FollowAlertsEnabled bool `json:"followAlertsEnabled"` // switch on new unread alert from another tenant
 }
 
 // Config holds all persisted user preferences.
@@ -54,11 +57,8 @@ func loadConfig() (*Config, error) {
 	}
 
 	// Apply defaults for TabConfig
-	if cfg.TabConfig.CycleIntervalS <= 0 {
-		cfg.TabConfig.CycleIntervalS = 30
-	}
-	if cfg.TabConfig.CycleMode == "" {
-		cfg.TabConfig.CycleMode = "all"
+	if cfg.TabConfig.AutoCycleIntervalS <= 0 {
+		cfg.TabConfig.AutoCycleIntervalS = 30
 	}
 
 	return &cfg, nil
