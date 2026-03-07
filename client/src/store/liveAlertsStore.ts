@@ -18,7 +18,12 @@ interface LiveAlertsState {
   position: 'top-center' | 'bottom-right';
   setEnabled: (v: boolean) => void;
   setPosition: (p: 'top-center' | 'bottom-right') => void;
-  addAlert: (alert: Omit<LiveAlert, 'id' | 'createdAt'>) => void;
+  /**
+   * Add an alert. Pass a stable `id` to deduplicate: if an alert with the same id
+   * is already in the list, it is skipped (the violation is already known to the user).
+   * Omit `id` for one-off events (monitor up/down) — a random UUID is assigned.
+   */
+  addAlert: (alert: Omit<LiveAlert, 'id' | 'createdAt'> & { id?: string }) => void;
   removeAlert: (id: string) => void;
   clearAll: () => void;
   markAllRead: () => void;
@@ -32,13 +37,18 @@ export const useLiveAlertsStore = create<LiveAlertsState>((set) => ({
   setEnabled: (v) => set({ enabled: v }),
   setPosition: (p) => set({ position: p }),
   addAlert: (alert) =>
-    set((s) => ({
-      alerts: [
-        { ...alert, id: crypto.randomUUID(), createdAt: Date.now() },
-        ...s.alerts,
-      ].slice(0, 50),
-      unreadCount: s.unreadCount + 1,
-    })),
+    set((s) => {
+      const id = alert.id ?? crypto.randomUUID();
+      // Stable id already in list → same violation still active, skip silently
+      if (alert.id && s.alerts.some((a) => a.id === id)) return s;
+      return {
+        alerts: [
+          { ...alert, id, createdAt: Date.now() },
+          ...s.alerts,
+        ].slice(0, 50),
+        unreadCount: s.unreadCount + 1,
+      };
+    }),
   removeAlert: (id) => set((s) => ({ alerts: s.alerts.filter((a) => a.id !== id) })),
   clearAll: () => set({ alerts: [], unreadCount: 0 }),
   markAllRead: () => set({ unreadCount: 0 }),

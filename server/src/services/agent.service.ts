@@ -214,6 +214,8 @@ export interface AgentPushSnapshot {
   receivedAt: Date;
   metrics: AgentMetrics;
   violations: string[];
+  /** Stable per-metric keys (same index as violations), used by the client for dedup */
+  violationKeys: string[];
   overallStatus: 'up' | 'alert';
 }
 
@@ -566,6 +568,7 @@ export const agentService = {
       receivedAt: hb.created_at,
       metrics: fullMetrics,
       violations,
+      violationKeys: [], // keys not persisted in DB; recomputed on next live push
       overallStatus: (hb.status === 'alert' ? 'alert' : 'up') as 'up' | 'alert',
     };
 
@@ -686,18 +689,22 @@ export const agentService = {
       monitor.agent_thresholds ?? device.groupThresholds ?? DEFAULT_AGENT_THRESHOLDS;
     const m = payload.metrics;
 
-    // Evaluate each threshold and build violation list
+    // Evaluate each threshold and build violation list.
+    // violations[i] = human-readable message, violationKeys[i] = stable metric key for client dedup.
     const violations: string[] = [];
+    const violationKeys: string[] = [];
 
     if (thresholds.cpu.enabled && m.cpu !== undefined) {
       if (this._isThresholdExceeded(m.cpu.percent, thresholds.cpu)) {
         violations.push(`CPU: ${m.cpu.percent.toFixed(1)}% ${thresholds.cpu.op} ${thresholds.cpu.threshold}%`);
+        violationKeys.push('cpu');
       }
     }
 
     if (thresholds.memory.enabled && m.memory !== undefined) {
       if (this._isThresholdExceeded(m.memory.percent, thresholds.memory)) {
         violations.push(`RAM: ${m.memory.percent.toFixed(1)}% ${thresholds.memory.op} ${thresholds.memory.threshold}%`);
+        violationKeys.push('ram');
       }
     }
 
@@ -706,6 +713,7 @@ export const agentService = {
         if (this._isThresholdExceeded(disk.percent, thresholds.disk)) {
           const diskName = device.displayConfig?.drives?.renames?.[disk.mount] ?? disk.mount;
           violations.push(`Disk ${diskName}: ${disk.percent.toFixed(1)}% ${thresholds.disk.op} ${thresholds.disk.threshold}%`);
+          violationKeys.push(`disk:${disk.mount}`); // raw mount (stable, not affected by rename)
         }
       }
     }
@@ -716,6 +724,7 @@ export const agentService = {
         const current = (m.network.inBytesPerSec / 125_000).toFixed(1);
         const limit   = (thresholds.netIn.threshold  / 125_000).toFixed(0);
         violations.push(`Net In: ${current} Mbps ${thresholds.netIn.op} ${limit} Mbps`);
+        violationKeys.push('net_in');
       }
     }
 
@@ -724,6 +733,7 @@ export const agentService = {
         const current = (m.network.outBytesPerSec / 125_000).toFixed(1);
         const limit   = (thresholds.netOut.threshold / 125_000).toFixed(0);
         violations.push(`Net Out: ${current} Mbps ${thresholds.netOut.op} ${limit} Mbps`);
+        violationKeys.push('net_out');
       }
     }
 
@@ -759,6 +769,7 @@ export const agentService = {
           violations.push(
             `Temp ${displayLabel}: ${sensor.celsius.toFixed(1)}°C ${active.op} ${active.threshold}°C`,
           );
+          violationKeys.push(sensor.key); // already stable: "temp:CPU Package", "gpu:0:RTX 4090", etc.
         }
       }
     }
@@ -776,6 +787,7 @@ export const agentService = {
       receivedAt: new Date(),
       metrics: m,
       violations,
+      violationKeys,
       overallStatus,
     };
     agentPushData.set(device.id, snapshot);
@@ -828,6 +840,8 @@ export const agentService = {
       _io.to('role:admin').emit(SOCKET_EVENTS.AGENT_STATUS_CHANGED, {
         deviceId: device.id,
         status: overallStatus,
+        violations,
+        violationKeys,
       });
     }
 

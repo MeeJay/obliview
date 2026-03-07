@@ -95,9 +95,12 @@ export class AgentMonitorWorker extends BaseMonitorWorker {
     // Emit dedicated agent status event so the sidebar badge updates immediately,
     // regardless of whether the BaseMonitorWorker will emit MONITOR_STATUS_CHANGE
     // (which only fires on transitions after retries are exhausted).
+    const snapshot = agentPushData.get(agentDeviceId);
     this.io.to('role:admin').emit(SOCKET_EVENTS.AGENT_STATUS_CHANGED, {
       deviceId: agentDeviceId,
       status: result.status,
+      violations: snapshot?.violations ?? [],
+      violationKeys: snapshot?.violationKeys ?? [],
     });
 
     return result;

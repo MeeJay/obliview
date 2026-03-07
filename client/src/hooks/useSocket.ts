@@ -120,8 +120,15 @@ export function useSocket() {
     });
 
     // Agent status — used for native app sound notifications on alert transitions
-    socket.on(SOCKET_EVENTS.AGENT_STATUS_CHANGED, (data: { deviceId: number; status: string }) => {
+    socket.on(SOCKET_EVENTS.AGENT_STATUS_CHANGED, (data: {
+      deviceId: number;
+      status: string;
+      violations?: string[];
+      violationKeys?: string[];
+    }) => {
       const prev = agentStatusRef.current.get(data.deviceId);
+      const violations = data.violations ?? [];
+      const violationKeys = data.violationKeys ?? [];
 
       if (isNativeApp) {
         if (data.status === 'alert' && prev !== 'alert') {
@@ -136,24 +143,30 @@ export function useSocket() {
         .find((m) => m.type === 'agent' && m.agentDeviceId === data.deviceId);
       const agentName = (agentMonitor?.agentDeviceName || agentMonitor?.name) ?? `Agent #${data.deviceId}`;
 
-      // Live alerts for agent threshold crossings
-      const { addAlert, enabled } = useLiveAlertsStore.getState();
-      if (enabled) {
-        if (data.status === 'alert' && prev !== 'alert') {
+      const { addAlert } = useLiveAlertsStore.getState();
+
+      if (data.status === 'alert') {
+        // One alert per violation, identified by a stable id: "agent-{deviceId}-{metricKey}".
+        // addAlert skips silently if that id is already in the list (same violation, still active).
+        // If the user dismissed the alert, it's gone from the list and will re-alert next push.
+        violations.forEach((message, i) => {
+          const metricKey = violationKeys[i] ?? `unknown_${i}`;
           addAlert({
+            id: `agent-${data.deviceId}-${metricKey}`,
             severity: 'warning',
             title: agentName,
-            message: 'Threshold exceeded',
+            message,
             navigateTo: `/agents/${data.deviceId}`,
           });
-        } else if (prev === 'alert' && data.status !== 'alert' && data.status !== 'down') {
-          addAlert({
-            severity: 'up',
-            title: agentName,
-            message: 'All metrics back to normal',
-            navigateTo: `/agents/${data.deviceId}`,
-          });
-        }
+        });
+      } else if (prev === 'alert') {
+        // Recovery: status left 'alert' — one-off event, random id (goes into the log)
+        addAlert({
+          severity: 'up',
+          title: agentName,
+          message: 'All metrics back to normal',
+          navigateTo: `/agents/${data.deviceId}`,
+        });
       }
 
       agentStatusRef.current.set(data.deviceId, data.status);
