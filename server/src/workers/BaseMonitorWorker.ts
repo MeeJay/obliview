@@ -263,7 +263,20 @@ export abstract class BaseMonitorWorker {
       this.isFirstBeat = false;
 
       // 3. Update monitor status in DB
-      await monitorService.updateStatus(this.config.id, result.status);
+      // For agent monitors on the startup beat, skip writing 'down' to the DB.
+      // agentPushData is empty right after restart, so the first worker check
+      // always returns 'down' even if the agent was 'alert' or 'up' before restart.
+      // Overwriting the DB here would corrupt the fallback used by agent.service.ts
+      // to detect transitions on the agent's first push after restart, causing a
+      // false up→alert notification.  The DB will be updated correctly on the next
+      // beat once the agent has pushed its real data.
+      const isAgentStartupDown =
+        isStartupBeat &&
+        !!this.config.agentDeviceId &&
+        result.status === 'down';
+      if (!isAgentStartupDown) {
+        await monitorService.updateStatus(this.config.id, result.status);
+      }
 
       // 4. Broadcast heartbeat via Socket.io (visibility-filtered)
       await this.emitToVisibleUsers(SOCKET_EVENTS.MONITOR_HEARTBEAT, {
