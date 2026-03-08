@@ -1,4 +1,4 @@
-import { LogOut, Menu, Download, PanelLeft, PanelLeftClose } from 'lucide-react';
+import { LogOut, Menu, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/store/authStore';
@@ -6,7 +6,6 @@ import { useUiStore } from '@/store/uiStore';
 import { Button } from '@/components/common/Button';
 import { NotificationCenter } from './NotificationCenter';
 import { TenantSwitcher } from './TenantSwitcher';
-import { cn } from '@/utils/cn';
 
 /** True when running inside the Obliview native desktop app (gear overlay sets this). */
 const isNativeApp = typeof window !== 'undefined' &&
@@ -15,17 +14,22 @@ const isNativeApp = typeof window !== 'undefined' &&
 export function Header() {
   const { t } = useTranslation();
   const { user, logout } = useAuthStore();
-  const { toggleSidebar, sidebarFloating, toggleSidebarFloating } = useUiStore();
+  const { toggleSidebar, sidebarFloating } = useUiStore();
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-bg-secondary px-4">
       <div className="flex items-center gap-3">
-        {/* Logo — always visible regardless of sidebar state.
-            This ensures it's never hidden behind the native desktop app tab bar. */}
-        <Link to="/" className="flex items-center gap-2 shrink-0">
-          <img src="/logo.webp" alt="Obliview" className="h-8 w-8 rounded-lg" />
-          <span className="hidden text-lg font-semibold text-text-primary sm:block">Obliview</span>
-        </Link>
+        {/* Logo — shown in the Header only when the sidebar is floating.
+            In pinned mode the logo lives inside the sidebar itself.
+            In floating mode (especially in the native desktop app where the native
+            tenant tab bar can cover the very top of the floating sidebar) the logo
+            is mirrored here so it remains always accessible. */}
+        {sidebarFloating && (
+          <Link to="/" className="flex items-center gap-2 shrink-0">
+            <img src="/logo.webp" alt="Obliview" className="h-8 w-8 rounded-lg" />
+            <span className="hidden text-lg font-semibold text-text-primary sm:block">Obliview</span>
+          </Link>
+        )}
 
         {/* Mobile menu button */}
         <button
@@ -39,28 +43,12 @@ export function Header() {
         <TenantSwitcher />
       </div>
 
-      <div className="flex items-center gap-2">
-        {/* Float / Pin sidebar toggle — moved here from the sidebar header so it stays
-            accessible when the sidebar is floating and the desktop app native tab bar
-            would otherwise cover the sidebar's top section. */}
-        <button
-          onClick={toggleSidebarFloating}
-          title={sidebarFloating ? t('nav.pinSidebar') : t('nav.floatSidebar')}
-          className={cn(
-            'rounded-md p-1.5 transition-colors',
-            sidebarFloating
-              ? 'text-accent hover:bg-accent/10'
-              : 'text-text-muted hover:bg-bg-hover hover:text-text-primary',
-          )}
-        >
-          {sidebarFloating ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
-        </button>
-
+      <div className="flex items-center gap-4">
         {/* Download App link — hidden inside the native desktop app */}
         {!isNativeApp && (
           <Link
             to="/download"
-            className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors px-2"
+            className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
             <Download size={14} />
             {t('nav.downloadApp')}

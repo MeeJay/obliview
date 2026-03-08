@@ -26,6 +26,8 @@ import {
   ChevronDown,
   CalendarClock,
   Building2,
+  PanelLeft,
+  PanelLeftClose,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/cn';
@@ -190,7 +192,7 @@ export function Sidebar() {
     { label: t('tenant.pageTitle'),  path: '/admin/tenants',        icon: <Building2 size={18} />,     adminOnly: true },
     { label: t('nav.settings'),      path: '/settings',             icon: <Settings size={18} />,      adminOnly: true },
   ];
-  const { openAddAgentModal } = useUiStore();
+  const { openAddAgentModal, sidebarFloating, toggleSidebarFloating } = useUiStore();
   const { fetchMonitors, monitors } = useMonitorStore();
   const { tree } = useGroupStore();
 
@@ -411,6 +413,26 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-border bg-bg-secondary">
+      {/* Logo + float/pin toggle */}
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+        <Link to="/" className="flex items-center gap-2">
+          <img src="/logo.webp" alt="Obliview" className="h-8 w-8 rounded-lg" />
+          <span className="text-lg font-semibold text-text-primary">Obliview</span>
+        </Link>
+        <button
+          onClick={toggleSidebarFloating}
+          title={sidebarFloating ? t('nav.pinSidebar') : t('nav.floatSidebar')}
+          className={cn(
+            'p-1.5 rounded transition-colors',
+            sidebarFloating
+              ? 'text-accent hover:text-accent hover:bg-accent/10'
+              : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
+          )}
+        >
+          {sidebarFloating ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
+        </button>
+      </div>
+
       {/* Add Monitor / Add Agent buttons */}
       {canCreate() && (
         <div className="px-3 pt-3 flex gap-2">
