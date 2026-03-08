@@ -31,11 +31,11 @@ function slugify(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
-async function ensureUniqueSlugTrx(trx: Knex.Transaction, slug: string): Promise<string> {
+async function ensureUniqueSlugTrx(trx: Knex.Transaction, slug: string, tenantId: number): Promise<string> {
   let candidate = slug;
   let i = 1;
   for (;;) {
-    const exists = await trx('monitor_groups').where({ slug: candidate }).first();
+    const exists = await trx('monitor_groups').where({ slug: candidate, tenant_id: tenantId }).first();
     if (!exists) return candidate;
     candidate = `${slug}-${i++}`;
   }
@@ -439,31 +439,62 @@ export const importExportController = {
           return monitorIdByUuid.get(uuid) ?? null;
         }
 
+        // ── Cross-tenant UUID collision pre-check ─────────────────────────────
+        // UUIDs have a global UNIQUE constraint across all tenants.  If an
+        // imported UUID belongs to a *different* tenant, we must never try to
+        // INSERT with that UUID (→ unique-constraint violation = 500) nor
+        // UPDATE it (→ wrong tenant mutation).  We auto-treat these as
+        // 'generateNew' regardless of the user-chosen conflictStrategy.
+
+        // Collect all UUIDs present in the import payload (groups covers both
+        // monitor groups AND agent groups since they share the same table).
+        const _importedGroupUuids   = [
+          ...((data.monitorGroups        as any[]) ?? []).map((g: any) => g.uuid),
+          ...((data.agentGroups          as any[]) ?? []).map((g: any) => g.uuid),
+        ].filter(Boolean) as string[];
+        const _importedMonitorUuids = ((data.monitors              as any[]) ?? []).map((m: any) => m.uuid).filter(Boolean) as string[];
+        const _importedChannelUuids = ((data.notificationChannels  as any[]) ?? []).map((c: any) => c.uuid).filter(Boolean) as string[];
+        const _importedTeamUuids    = ((data.teams                 as any[]) ?? []).map((t: any) => t.uuid).filter(Boolean) as string[];
+        const _importedActionUuids  = ((data.remediationActions    as any[]) ?? []).map((a: any) => a.uuid).filter(Boolean) as string[];
+
+        // For each table, find which of those UUIDs are already owned by another tenant.
+        const foreignGroupUuids   = new Set<string>(_importedGroupUuids.length   ? (await trx('monitor_groups')       .whereIn('uuid', _importedGroupUuids)  .whereNot({ tenant_id: tenantId }).pluck('uuid') as string[]) : []);
+        const foreignMonitorUuids = new Set<string>(_importedMonitorUuids.length ? (await trx('monitors')             .whereIn('uuid', _importedMonitorUuids).whereNot({ tenant_id: tenantId }).pluck('uuid') as string[]) : []);
+        const foreignChannelUuids = new Set<string>(_importedChannelUuids.length ? (await trx('notification_channels').whereIn('uuid', _importedChannelUuids).whereNot({ tenant_id: tenantId }).pluck('uuid') as string[]) : []);
+        const foreignTeamUuids    = new Set<string>(_importedTeamUuids.length    ? (await trx('user_teams')           .whereIn('uuid', _importedTeamUuids)   .whereNot({ tenant_id: tenantId }).pluck('uuid') as string[]) : []);
+        const foreignActionUuids  = new Set<string>(_importedActionUuids.length  ? (await trx('remediation_actions')  .whereIn('uuid', _importedActionUuids) .whereNot({ tenant_id: tenantId }).pluck('uuid') as string[]) : []);
+
         /**
          * Determine the effective (uuid, strategy) for an item being imported.
          *
          * Rules:
-         *  - No UUID in data   → always CREATE with a fresh UUID
-         *  - UUID not in DB    → CREATE with the given UUID
-         *  - UUID in DB        → apply conflictStrategy
-         *    · update          → return { action: 'update', uuid }
-         *    · generateNew     → return { action: 'create', uuid: newRandom }
-         *    · ignore          → return { action: 'skip' }
+         *  - No UUID in data                         → CREATE with a fresh UUID
+         *  - UUID belongs to a different tenant      → CREATE with a fresh UUID
+         *    (regardless of conflictStrategy — cannot reuse or mutate foreign UUIDs)
+         *  - UUID not in target tenant               → CREATE with the given UUID
+         *  - UUID exists in target tenant            → apply conflictStrategy
+         *    · update      → UPDATE existing record
+         *    · generateNew → CREATE with new random UUID
+         *    · ignore      → SKIP
          */
         function resolveConflict(
           inputUuid: string | null | undefined,
           idMap: Map<string, number>,
+          foreignUuids: Set<string>,
         ): { action: 'create'; uuid: string } | { action: 'update'; uuid: string; existingId: number } | { action: 'skip' } {
           if (!inputUuid) {
-            // No UUID supplied → always create
+            return { action: 'create', uuid: randomUUID() };
+          }
+          // UUID belongs to another tenant → must generate a fresh one
+          if (foreignUuids.has(inputUuid)) {
             return { action: 'create', uuid: randomUUID() };
           }
           const existingId = idMap.get(inputUuid);
           if (existingId === undefined) {
-            // UUID not in DB → create with provided UUID
+            // UUID not in target tenant at all → create with provided UUID
             return { action: 'create', uuid: inputUuid };
           }
-          // UUID conflict
+          // UUID conflict in target tenant → apply strategy
           if (conflictStrategy === 'update')      return { action: 'update', uuid: inputUuid, existingId };
           if (conflictStrategy === 'generateNew') return { action: 'create', uuid: randomUUID() };
           /* ignore */                            return { action: 'skip' };
@@ -481,7 +512,7 @@ export const importExportController = {
           for (const g of sorted) {
             if (!g.name) { skipped++; continue; }
 
-            const decision  = resolveConflict(g.uuid as string | undefined, groupIdByUuid);
+            const decision  = resolveConflict(g.uuid as string | undefined, groupIdByUuid, foreignGroupUuids);
             const parentId  = resolveGroup(g.parentUuid as string | null | undefined);
 
             if (decision.action === 'skip') {
@@ -492,7 +523,7 @@ export const importExportController = {
             }
 
             if (decision.action === 'update') {
-              await trx('monitor_groups').where({ uuid: decision.uuid }).update({
+              await trx('monitor_groups').where({ uuid: decision.uuid, tenant_id: tenantId }).update({
                 name:                g.name,
                 description:         (g.description as string | null) ?? null,
                 sort_order:          (g.sortOrder as number) ?? 0,
@@ -507,7 +538,7 @@ export const importExportController = {
               updated++;
             } else {
               // create
-              const slug  = await ensureUniqueSlugTrx(trx, slugify(g.name as string));
+              const slug  = await ensureUniqueSlugTrx(trx, slugify(g.name as string), tenantId);
               const [row] = await trx('monitor_groups').insert({
                 uuid:                decision.uuid,
                 name:                g.name,
@@ -539,7 +570,7 @@ export const importExportController = {
           for (const m of data.monitors as Record<string, unknown>[]) {
             if (!m.name || !m.type) { skipped++; continue; }
 
-            const decision = resolveConflict(m.uuid as string | undefined, monitorIdByUuid);
+            const decision = resolveConflict(m.uuid as string | undefined, monitorIdByUuid, foreignMonitorUuids);
             const groupId  = resolveGroup(m.groupUuid as string | null | undefined);
 
             if (decision.action === 'skip') { skipped++; continue; }
@@ -609,7 +640,7 @@ export const importExportController = {
             };
 
             if (decision.action === 'update') {
-              await trx('monitors').where({ uuid: decision.uuid }).update(row);
+              await trx('monitors').where({ uuid: decision.uuid, tenant_id: tenantId }).update(row);
               updated++;
             } else {
               const [inserted] = await trx('monitors').insert({ ...row, uuid: decision.uuid }).returning('id');
@@ -657,7 +688,7 @@ export const importExportController = {
           for (const c of data.notificationChannels as Record<string, unknown>[]) {
             if (!c.name || !c.type) { skipped++; continue; }
 
-            const decision = resolveConflict(c.uuid as string | undefined, channelIdByUuid);
+            const decision = resolveConflict(c.uuid as string | undefined, channelIdByUuid, foreignChannelUuids);
 
             if (decision.action === 'skip') { skipped++; continue; }
 
@@ -672,7 +703,7 @@ export const importExportController = {
 
             let channelId: number;
             if (decision.action === 'update') {
-              await trx('notification_channels').where({ uuid: decision.uuid }).update(channelRow);
+              await trx('notification_channels').where({ uuid: decision.uuid, tenant_id: tenantId }).update(channelRow);
               channelId = decision.existingId;
               updated++;
             } else {
@@ -724,7 +755,7 @@ export const importExportController = {
           for (const g of sorted) {
             if (!g.name) { skipped++; continue; }
 
-            const decision = resolveConflict(g.uuid as string | undefined, groupIdByUuid);
+            const decision = resolveConflict(g.uuid as string | undefined, groupIdByUuid, foreignGroupUuids);
             const parentId = resolveGroup(g.parentUuid as string | null | undefined);
 
             if (decision.action === 'skip') {
@@ -734,7 +765,7 @@ export const importExportController = {
             }
 
             if (decision.action === 'update') {
-              await trx('monitor_groups').where({ uuid: decision.uuid }).update({
+              await trx('monitor_groups').where({ uuid: decision.uuid, tenant_id: tenantId }).update({
                 name:             g.name,
                 description:      (g.description as string | null) ?? null,
                 sort_order:       (g.sortOrder as number) ?? 0,
@@ -746,7 +777,7 @@ export const importExportController = {
               if (g.uuid) batchGroupByOrigUuid.set(g.uuid as string, decision.existingId);
               updated++;
             } else {
-              const slug  = await ensureUniqueSlugTrx(trx, slugify(g.name as string));
+              const slug  = await ensureUniqueSlugTrx(trx, slugify(g.name as string), tenantId);
               const [row] = await trx('monitor_groups').insert({
                 uuid:               decision.uuid,
                 name:               g.name,
@@ -779,7 +810,7 @@ export const importExportController = {
           for (const t of data.teams as Record<string, unknown>[]) {
             if (!t.name) { skipped++; continue; }
 
-            const decision = resolveConflict(t.uuid as string | undefined, teamIdByUuid);
+            const decision = resolveConflict(t.uuid as string | undefined, teamIdByUuid, foreignTeamUuids);
 
             if (decision.action === 'skip') { skipped++; continue; }
 
@@ -794,7 +825,7 @@ export const importExportController = {
             let teamId: number;
             if (decision.action === 'update') {
               try {
-                await trx('user_teams').where({ uuid: decision.uuid }).update(teamRow);
+                await trx('user_teams').where({ uuid: decision.uuid, tenant_id: tenantId }).update(teamRow);
               } catch {
                 // Name conflict with another team — keep existing
               }
@@ -851,7 +882,7 @@ export const importExportController = {
           for (const a of data.remediationActions as Record<string, unknown>[]) {
             if (!a.name || !a.type) { skipped++; continue; }
 
-            const decision = resolveConflict(a.uuid as string | undefined, actionIdByUuid);
+            const decision = resolveConflict(a.uuid as string | undefined, actionIdByUuid, foreignActionUuids);
 
             if (decision.action === 'skip') {
               if (a.uuid) batchActionByOrigUuid.set(a.uuid as string, actionIdByUuid.get(a.uuid as string)!);
@@ -873,7 +904,7 @@ export const importExportController = {
             };
 
             if (decision.action === 'update') {
-              await trx('remediation_actions').where({ uuid: decision.uuid }).update(actionRow);
+              await trx('remediation_actions').where({ uuid: decision.uuid, tenant_id: tenantId }).update(actionRow);
               batchActionByOrigUuid.set(decision.uuid, decision.existingId);
               if (a.uuid) batchActionByOrigUuid.set(a.uuid as string, decision.existingId);
               updated++;
