@@ -9,6 +9,7 @@ import { useMonitorStore } from '@/store/monitorStore';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { GroupPicker } from '@/components/common/GroupPicker';
+import { Checkbox } from '@/components/ui/Checkbox';
 import toast from 'react-hot-toast';
 import { cn } from '@/utils/cn';
 
@@ -62,11 +63,9 @@ function FieldRow({
   return (
     <div className="space-y-1.5">
       <label className="flex items-center gap-2 cursor-pointer select-none">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={enabled}
-          onChange={onToggle}
-          className="h-4 w-4 rounded border-border bg-bg-tertiary text-accent focus:ring-accent"
+          onCheckedChange={onToggle}
         />
         <span className={cn('text-sm font-medium', enabled ? 'text-text-primary' : 'text-text-secondary')}>
           {label}
@@ -305,12 +304,10 @@ export function BulkEditModal({ monitorIds, isAgentSelection, onClose }: BulkEdi
                 onToggle={() => setEnabled('upsideDown', !form.upsideDown.enabled)}
               >
                 <label className={cn('flex items-center gap-2 cursor-pointer', !form.upsideDown.enabled && 'pointer-events-none')}>
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={form.upsideDown.value}
-                    onChange={(e) => setValue('upsideDown', e.target.checked)}
+                    onCheckedChange={(v) => setValue('upsideDown', v)}
                     disabled={!form.upsideDown.enabled}
-                    className="h-4 w-4 rounded border-border bg-bg-tertiary text-accent focus:ring-accent"
                   />
                   <span className="text-sm text-text-secondary">Invert UP/DOWN logic</span>
                 </label>

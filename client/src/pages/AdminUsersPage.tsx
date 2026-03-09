@@ -34,6 +34,7 @@ import { monitorsApi } from '@/api/monitors.api';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
+import { Checkbox } from '@/components/ui/Checkbox';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 
@@ -651,8 +652,10 @@ export function AdminUsersPage() {
                     <Input label={t('users.teams.nameLabel')} value={formTeamName} onChange={(e) => setFormTeamName(e.target.value)} required />
                     <Input label={t('users.teams.descLabel')} value={formTeamDesc} onChange={(e) => setFormTeamDesc(e.target.value)} />
                     <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer">
-                      <input type="checkbox" checked={formCanCreate} onChange={(e) => setFormCanCreate(e.target.checked)}
-                        className="rounded border-border text-accent focus:ring-accent" />
+                      <Checkbox
+                        checked={formCanCreate}
+                        onCheckedChange={setFormCanCreate}
+                      />
                       {t('users.teams.canCreate')}
                     </label>
                     {/* Tenant selector — platform admin only, create mode only */}

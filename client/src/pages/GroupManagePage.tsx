@@ -21,6 +21,7 @@ import { GroupPicker } from '@/components/common/GroupPicker';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { NotificationBindingsPanel } from '@/components/notifications/NotificationBindingsPanel';
 import { MaintenanceWindowList } from '@/components/maintenance/MaintenanceWindowList';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { cn } from '@/utils/cn';
 import toast from 'react-hot-toast';
 

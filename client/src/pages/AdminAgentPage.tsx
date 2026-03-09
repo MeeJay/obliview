@@ -27,6 +27,7 @@ import { groupsApi } from '@/api/groups.api';
 import { getSocket } from '@/socket/socketClient';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { useUiStore } from '@/store/uiStore';
 import toast from 'react-hot-toast';
 
@@ -132,12 +133,11 @@ function TriStateCheckbox({
 
   return (
     <label className="flex items-start gap-3 cursor-pointer group">
-      <input
+      <Checkbox
         ref={ref}
-        type="checkbox"
         checked={value === true}
-        onChange={e => onChange(e.target.checked)}
-        className="mt-0.5 accent-accent w-4 h-4"
+        onCheckedChange={onChange}
+        wrapperClassName="mt-0.5"
       />
       <div>
         <p className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">{label}</p>
@@ -283,11 +283,10 @@ function EditAgentModal({
 
           {/* Heartbeat monitoring toggle */}
           <label className="flex items-start gap-3 cursor-pointer group">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={heartbeatMonitoring}
-              onChange={e => setHeartbeatMonitoring(e.target.checked)}
-              className="mt-0.5 accent-accent w-4 h-4"
+              onCheckedChange={setHeartbeatMonitoring}
+              wrapperClassName="mt-0.5"
             />
             <div>
               <p className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
@@ -301,11 +300,10 @@ function EditAgentModal({
 
           {/* Override group settings */}
           <label className="flex items-start gap-3 cursor-pointer group">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={overrideGroupSettings}
-              onChange={e => setOverrideGroupSettings(e.target.checked)}
-              className="mt-0.5 accent-accent w-4 h-4"
+              onCheckedChange={setOverrideGroupSettings}
+              wrapperClassName="mt-0.5"
             />
             <div>
               <p className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
@@ -319,11 +317,10 @@ function EditAgentModal({
 
           {/* Suspend toggle */}
           <label className="flex items-start gap-3 cursor-pointer group">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={suspended}
-              onChange={e => setSuspended(e.target.checked)}
-              className="mt-0.5 accent-accent w-4 h-4"
+              onCheckedChange={setSuspended}
+              wrapperClassName="mt-0.5"
             />
             <div>
               <p className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
@@ -916,12 +913,10 @@ export function AdminAgentPage() {
                 <thead>
                   <tr className="border-b border-border bg-bg-tertiary">
                     <th className="px-3 py-2.5 w-8">
-                      <input
+                      <Checkbox
                         ref={selectAllRef}
-                        type="checkbox"
                         checked={allSelected}
-                        onChange={toggleSelectAll}
-                        className="accent-accent w-4 h-4 cursor-pointer"
+                        onCheckedChange={toggleSelectAll}
                         title={allSelected ? 'Deselect all' : 'Select all'}
                       />
                     </th>
@@ -942,11 +937,9 @@ export function AdminAgentPage() {
                     >
                       {/* Checkbox */}
                       <td className="px-3 py-3">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={selectedIds.has(device.id)}
-                          onChange={() => toggleSelect(device.id)}
-                          className="accent-accent w-4 h-4 cursor-pointer"
+                          onCheckedChange={() => toggleSelect(device.id)}
                         />
                       </td>
                       <td className="px-4 py-3">

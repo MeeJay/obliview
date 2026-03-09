@@ -12,6 +12,7 @@ import { cn } from '@/utils/cn';
 import { maintenanceApi } from '@/api/maintenance.api';
 import { ScopeSelector } from './ScopeSelector';
 import type { ScopeTarget } from './ScopeSelector';
+import { Checkbox } from '@/components/ui/Checkbox';
 
 /**
  * Convert a UTC ISO string to the "YYYY-MM-DDTHH:MM" format expected by
@@ -432,11 +433,9 @@ export function MaintenanceWindowModal({
               <div className="space-y-1.5 max-h-32 overflow-y-auto">
                 {channelOptions.map((ch) => (
                   <label key={ch.id} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={notifyChannelIds.includes(ch.id)}
-                      onChange={() => toggleChannel(ch.id)}
-                      className="h-3.5 w-3.5 rounded border-border bg-bg-tertiary text-accent focus:ring-accent"
+                      onCheckedChange={() => toggleChannel(ch.id)}
                     />
                     <span className="text-sm text-text-primary">{ch.name}</span>
                     <span className="text-xs text-text-muted">({ch.type})</span>
@@ -448,11 +447,9 @@ export function MaintenanceWindowModal({
 
           {/* Active toggle */}
           <label className="flex items-center gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={active}
-              onChange={(e) => setActive(e.target.checked)}
-              className="h-4 w-4 rounded border-border bg-bg-tertiary text-accent focus:ring-accent"
+              onCheckedChange={setActive}
             />
             <span className="text-sm font-medium text-text-primary">{t('maintenance.fieldActive')}</span>
           </label>
