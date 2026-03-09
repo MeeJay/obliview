@@ -465,7 +465,7 @@ export abstract class BaseMonitorWorker {
           newStatus,
           message,  // e.g. "CPU: 92.1% > 90%; Disk /: 91.0% > 90%"
           timestamp: new Date().toISOString(),
-        });
+        }, this.config.agentDeviceId as number | null | undefined);
       }
     } catch (error) {
       logger.error(error, `Failed to send notifications for monitor ${this.config.id}`);

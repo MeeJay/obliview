@@ -246,7 +246,7 @@ export const notificationService = {
    * 'merge' = add to parent channels, 'replace' = discard parent channels at that level,
    * 'exclude' = remove a specific channel from the inherited set.
    */
-  async resolveChannelsForMonitor(monitorId: number, groupId: number | null): Promise<number[]> {
+  async resolveChannelsForMonitor(monitorId: number, groupId: number | null, agentDeviceId?: number | null): Promise<number[]> {
     let channelIds: Set<number> = new Set();
 
     // 1. Global bindings
@@ -269,6 +269,14 @@ export const notificationService = {
     // 3. Monitor bindings
     const monitorBindings = await this.getBindings('monitor', monitorId);
     channelIds = this._applyBindings(channelIds, monitorBindings);
+
+    // 4. Agent device bindings (when this monitor is backed by an agent device).
+    //    Agent-level channel overrides are stored under scope='agent'/scope_id=deviceId
+    //    and must be applied AFTER the monitor bindings so device-level config wins.
+    if (agentDeviceId) {
+      const agentBindings = await this.getBindings('agent', agentDeviceId);
+      channelIds = this._applyBindings(channelIds, agentBindings);
+    }
 
     return Array.from(channelIds);
   },
@@ -424,8 +432,9 @@ export const notificationService = {
     monitorId: number,
     groupId: number | null,
     payload: NotificationPayload,
+    agentDeviceId?: number | null,
   ): Promise<void> {
-    const channelIds = await this.resolveChannelsForMonitor(monitorId, groupId);
+    const channelIds = await this.resolveChannelsForMonitor(monitorId, groupId, agentDeviceId);
     if (channelIds.length === 0) {
       logger.warn(`No notification channels resolved for monitor ${monitorId} (event: ${payload.newStatus}) — check global/group/monitor bindings`);
       return;
