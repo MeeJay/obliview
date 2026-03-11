@@ -80,9 +80,9 @@ router.get('/proxy-link', requireAuth, async (req: Request, res: Response, next:
     const base = cfg.url.replace(/\/$/, '');
     const lookupUrl = `${base}/api/obliguard/link?uuid=${encodeURIComponent(uuid)}`;
 
-    let response: Response;
+    let fetchRes: Awaited<ReturnType<typeof fetch>>;
     try {
-      response = await fetch(lookupUrl, {
+      fetchRes = await fetch(lookupUrl, {
         headers: { Authorization: `Bearer ${cfg.apiKey}` },
         signal: AbortSignal.timeout(5000),
       });
@@ -92,14 +92,14 @@ router.get('/proxy-link', requireAuth, async (req: Request, res: Response, next:
       return;
     }
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      console.error(`[obliguard proxy-link] Obliguard returned HTTP ${response.status} for uuid=${uuid}: ${text}`);
+    if (!fetchRes.ok) {
+      const text = await fetchRes.text().catch(() => '');
+      console.error(`[obliguard proxy-link] Obliguard returned HTTP ${fetchRes.status} for uuid=${uuid}: ${text}`);
       res.json({ success: true, data: { obliguardUrl: null } });
       return;
     }
 
-    const body = await response.json() as { success: boolean; data?: { path: string } };
+    const body = await fetchRes.json() as { success: boolean; data?: { path: string } };
     if (!body.success || !body.data?.path) {
       console.error(`[obliguard proxy-link] Unexpected body for uuid=${uuid}:`, JSON.stringify(body));
       res.json({ success: true, data: { obliguardUrl: null } });
