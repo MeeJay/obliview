@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Shield, Server, Plus, Pencil, Trash2, Wifi, Eye, EyeOff, ArrowLeftRight } from 'lucide-react';
+import { Shield, Server, Plus, Pencil, Trash2, Wifi, Eye, EyeOff, ArrowLeftRight, Copy, RefreshCw } from 'lucide-react';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { NotificationTypesPanel } from '@/components/agent/NotificationTypesPanel';
 import { useAuthStore } from '@/store/authStore';
@@ -386,9 +386,10 @@ export function SettingsPage() {
               <ArrowLeftRight size={16} className="text-text-muted" />
               <h2 className="text-lg font-semibold text-text-primary">Obliguard Integration</h2>
             </div>
-            <div className="rounded-lg border border-border bg-bg-secondary p-5">
-              <p className="text-sm text-text-muted mb-4">
+            <div className="rounded-lg border border-border bg-bg-secondary p-5 space-y-4">
+              <p className="text-sm text-text-muted">
                 Link Obliview to an Obliguard instance so agents can be cross-referenced between the two apps.
+                Both apps share the same secret key — generate it here, then paste it into Obliguard's settings.
               </p>
               <form onSubmit={handleObliguardSubmit} className="space-y-3">
                 <Input
@@ -398,22 +399,59 @@ export function SettingsPage() {
                   value={obliguardForm.url}
                   onChange={(e) => setObliguardForm((f) => ({ ...f, url: e.target.value }))}
                 />
-                <div className="relative">
-                  <Input
-                    label="API Key"
-                    type={showObliguardKey ? 'text' : 'password'}
-                    placeholder="Paste the API key configured in Obliguard"
-                    value={obliguardForm.apiKey}
-                    onChange={(e) => setObliguardForm((f) => ({ ...f, apiKey: e.target.value }))}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowObliguardKey((v) => !v)}
-                    className="absolute right-2.5 bottom-2 text-text-muted hover:text-text-primary"
-                  >
-                    {showObliguardKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
+
+                {/* Secret — with Generate + Show/Hide + Copy */}
+                <div>
+                  <label className="block text-sm font-medium text-text-secondary mb-1">
+                    Secret
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showObliguardKey ? 'text' : 'password'}
+                        placeholder="Generate or paste a secret"
+                        value={obliguardForm.apiKey}
+                        onChange={(e) => setObliguardForm((f) => ({ ...f, apiKey: e.target.value }))}
+                        className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 pr-8 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowObliguardKey((v) => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                      >
+                        {showObliguardKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                    {/* Generate */}
+                    <button
+                      type="button"
+                      onClick={() => setObliguardForm((f) => ({ ...f, apiKey: crypto.randomUUID() }))}
+                      title="Generate a new random key"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+                    >
+                      <RefreshCw size={13} />
+                      Generate
+                    </button>
+                    {/* Copy */}
+                    {obliguardForm.apiKey && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(obliguardForm.apiKey);
+                          toast.success('API key copied');
+                        }}
+                        title="Copy to clipboard"
+                        className="p-2 rounded-lg border border-border text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+                      >
+                        <Copy size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-xs text-text-muted">
+                    Use the same secret in Obliguard → Settings → Obliview Integration.
+                  </p>
                 </div>
+
                 <div className="flex justify-end pt-1">
                   <Button type="submit" disabled={obliguardSaving}>
                     {obliguardSaving ? 'Saving…' : 'Save'}
