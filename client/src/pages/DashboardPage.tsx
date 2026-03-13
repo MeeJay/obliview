@@ -331,21 +331,21 @@ export function DashboardPage() {
 
       {/* Stats Overview */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-4 mb-6">
-        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+        <div className="rounded-lg border border-border bg-bg-secondary p-4" data-status="up">
           <div className="text-2xl font-bold text-status-up">{upCount}</div>
           <div className="text-sm text-text-secondary">{t('dashboard.statsUp')}</div>
         </div>
-        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+        <div className="rounded-lg border border-border bg-bg-secondary p-4" data-status="down">
           <div className="text-2xl font-bold text-status-down">{downCount}</div>
           <div className="text-sm text-text-secondary">{t('dashboard.statsDown')}</div>
         </div>
         {alertCount > 0 && (
-          <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <div className="rounded-lg border border-border bg-bg-secondary p-4" data-status="alert">
             <div className="text-2xl font-bold text-orange-500">{alertCount}</div>
             <div className="text-sm text-text-secondary">{t('dashboard.statsAlert')}</div>
           </div>
         )}
-        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+        <div className="rounded-lg border border-border bg-bg-secondary p-4" data-status="pending">
           <div className="text-2xl font-bold text-status-pending">{pendingCount}</div>
           <div className="text-sm text-text-secondary">{t('dashboard.statsPending')}</div>
         </div>
@@ -354,18 +354,18 @@ export function DashboardPage() {
           <div className="text-sm text-text-secondary">{t('dashboard.statsPaused')}</div>
         </div>
         {(sslWarnCount > 0 || sslExpiredCount > 0) && (
-          <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <div className="rounded-lg border border-border bg-bg-secondary p-4" data-status="ssl_warning">
             <div className="text-2xl font-bold text-status-ssl-warning">{sslWarnCount}</div>
             <div className="text-sm text-text-secondary">{t('dashboard.statsSslWarn')}</div>
           </div>
         )}
         {sslExpiredCount > 0 && (
-          <div className="rounded-lg border border-border bg-bg-secondary p-4">
+          <div className="rounded-lg border border-border bg-bg-secondary p-4" data-status="ssl_expired">
             <div className="text-2xl font-bold text-status-ssl-expired">{sslExpiredCount}</div>
             <div className="text-sm text-text-secondary">{t('dashboard.statsSslExpired')}</div>
           </div>
         )}
-        <div className="rounded-lg border border-border bg-bg-secondary p-4">
+        <div className="rounded-lg border border-border bg-bg-secondary p-4" data-status="up">
           <div className="flex items-center gap-1.5 text-2xl font-bold text-accent">
             <Activity size={20} />
             {overallUptime !== null ? `${overallUptime}%` : '-'}

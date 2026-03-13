@@ -19,6 +19,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { appConfigService } from '../services/appConfig.service';
 import { authService, AccountLinkRequiredError } from '../services/auth.service';
+import { twoFactorService } from '../services/twoFactor.service';
 import { hashPassword, comparePassword } from '../utils/crypto';
 import { tenantService } from '../services/tenant.service';
 import { AppError } from '../middleware/errorHandler';
@@ -264,8 +265,8 @@ router.post('/exchange', async (req: Request, res: Response, next: NextFunction)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/sso/complete-link  { linkToken: string, password: string }
-// Completes the account-linking flow: verifies local password, links the foreign
-// identity to the existing local account, and establishes a session.
+// Verifies local password. If the account has 2FA, returns { requires2fa: true }
+// and stores a pending session — client must then call /verify-link-2fa.
 // No session auth — this IS the authentication step.
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/complete-link', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -273,7 +274,6 @@ router.post('/complete-link', async (req: Request, res: Response, next: NextFunc
     const { linkToken, password } = req.body as { linkToken?: string; password?: string };
     if (!linkToken || !password) throw new AppError(400, 'linkToken and password are required');
 
-    // Validate the link token (not expired)
     const linkRow = await db('sso_link_tokens')
       .where({ link_token: linkToken })
       .where('expires_at', '>', new Date())
@@ -283,32 +283,136 @@ router.post('/complete-link', async (req: Request, res: Response, next: NextFunc
       } | undefined;
     if (!linkRow) throw new AppError(401, 'Link token expired or invalid');
 
-    // Verify the local account password
     const localUser = await db('users')
       .where({ username: linkRow.conflicting_username, is_active: true })
-      .first() as { id: number; username: string; role: string; password_hash: string | null } | undefined;
+      .first() as {
+        id: number; username: string; role: string; password_hash: string | null;
+        totp_enabled: boolean | null; email_otp_enabled: boolean | null; email: string | null;
+      } | undefined;
     if (!localUser || !localUser.password_hash) throw new AppError(404, 'Local account not found');
 
     const valid = await comparePassword(password, localUser.password_hash);
     if (!valid) throw new AppError(401, 'Incorrect password');
 
-    // Link the foreign identity to the local account
+    // If the local account has 2FA, require it before completing the link
+    const hasMfa = localUser.totp_enabled || localUser.email_otp_enabled;
+    if (hasMfa) {
+      req.session.pendingMfaLinkToken = linkToken;
+
+      // Auto-send email OTP if configured
+      if (localUser.email_otp_enabled && localUser.email) {
+        const cfg = await appConfigService.getAll();
+        if (cfg.otp_smtp_server_id) {
+          const code = twoFactorService.generateEmailOtp();
+          req.session.pendingEmailOtp = { code, email: localUser.email, expires: Date.now() + 10 * 60 * 1000 };
+          await twoFactorService.sendEmailOtp(cfg.otp_smtp_server_id, localUser.email, code);
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          requires2fa: true,
+          methods: { totp: !!localUser.totp_enabled, email: !!localUser.email_otp_enabled },
+        },
+      });
+      return;
+    }
+
+    // No 2FA — complete the link immediately
     await db('users').where({ id: localUser.id }).update({
       foreign_source: linkRow.foreign_source,
       foreign_id: linkRow.foreign_id,
       foreign_source_url: linkRow.foreign_source_url,
       updated_at: new Date(),
     });
-
-    // Consume the link token
     await db('sso_link_tokens').where({ link_token: linkToken }).delete();
 
-    // Establish session
     req.session.userId = localUser.id;
     req.session.username = localUser.username;
     req.session.role = localUser.role;
     const tenant = await tenantService.getFirstTenantForUser(localUser.id);
     req.session.currentTenantId = tenant?.id ?? 1;
+
+    const user = await authService.getUserById(localUser.id);
+    res.json({ success: true, data: { user, isFirstLogin: false } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/sso/verify-link-2fa  { code: string, method: 'totp'|'email', resend?: boolean }
+// Second step of the link flow when the local account has 2FA.
+// Session must contain pendingMfaLinkToken set by /complete-link.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/verify-link-2fa', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { code, method, resend } = req.body as { code?: string; method?: string; resend?: boolean };
+
+    const linkToken = req.session.pendingMfaLinkToken;
+    if (!linkToken) throw new AppError(400, 'No pending 2FA link session');
+
+    const linkRow = await db('sso_link_tokens')
+      .where({ link_token: linkToken })
+      .where('expires_at', '>', new Date())
+      .first() as {
+        foreign_source: string; foreign_id: number; foreign_source_url: string;
+        conflicting_username: string;
+      } | undefined;
+    if (!linkRow) throw new AppError(401, 'Link session expired, please start over');
+
+    const localUser = await db('users')
+      .where({ username: linkRow.conflicting_username, is_active: true })
+      .first() as {
+        id: number; username: string; role: string;
+        totp_enabled: boolean | null; totp_secret: string | null;
+        email_otp_enabled: boolean | null; email: string | null;
+      } | undefined;
+    if (!localUser) throw new AppError(404, 'Local account not found');
+
+    // Resend email OTP
+    if (resend) {
+      if (!localUser.email_otp_enabled || !localUser.email) throw new AppError(400, 'Email OTP not configured for this account');
+      const cfg = await appConfigService.getAll();
+      if (!cfg.otp_smtp_server_id) throw new AppError(400, 'No SMTP server configured for OTP');
+      const newCode = twoFactorService.generateEmailOtp();
+      req.session.pendingEmailOtp = { code: newCode, email: localUser.email, expires: Date.now() + 10 * 60 * 1000 };
+      await twoFactorService.sendEmailOtp(cfg.otp_smtp_server_id, localUser.email, newCode);
+      res.json({ success: true });
+      return;
+    }
+
+    if (!code || !method) throw new AppError(400, 'code and method are required');
+
+    let valid = false;
+    if (method === 'totp' && localUser.totp_enabled && localUser.totp_secret) {
+      valid = twoFactorService.verifyTotp(localUser.totp_secret, String(code));
+    } else if (method === 'email' && localUser.email_otp_enabled) {
+      const pending = req.session.pendingEmailOtp;
+      if (pending && Date.now() <= pending.expires && pending.code === String(code)) {
+        valid = true;
+      }
+    }
+    if (!valid) throw new AppError(401, 'Invalid code');
+
+    // Complete the link
+    await db('users').where({ id: localUser.id }).update({
+      foreign_source: linkRow.foreign_source,
+      foreign_id: linkRow.foreign_id,
+      foreign_source_url: linkRow.foreign_source_url,
+      updated_at: new Date(),
+    });
+    await db('sso_link_tokens').where({ link_token: linkToken }).delete();
+
+    delete req.session.pendingMfaLinkToken;
+    delete req.session.pendingEmailOtp;
+
+    req.session.userId = localUser.id;
+    req.session.username = localUser.username;
+    req.session.role = localUser.role;
+    const tenant2fa = await tenantService.getFirstTenantForUser(localUser.id);
+    req.session.currentTenantId = tenant2fa?.id ?? 1;
 
     const user = await authService.getUserById(localUser.id);
     res.json({ success: true, data: { user, isFirstLogin: false } });

@@ -2642,21 +2642,18 @@ export function AgentDetailPage() {
                         const url = new URL(obliguardUrl);
                         const redirectPath = url.pathname;
                         const obliguardBase = url.origin;
-                        window.open(
-                          `${obliguardBase}/auth/foreign?token=${encodeURIComponent(token)}&from=${encodeURIComponent(from)}&source=obliview&redirect=${encodeURIComponent(redirectPath)}`,
-                          '_blank', 'noopener,noreferrer',
-                        );
+                        window.location.href = `${obliguardBase}/auth/foreign?token=${encodeURIComponent(token)}&from=${encodeURIComponent(from)}&source=obliview&redirect=${encodeURIComponent(redirectPath)}`;
                       } catch {
-                        window.open(obliguardUrl, '_blank', 'noopener,noreferrer');
+                        window.location.href = obliguardUrl;
                       }
                     })
                     .catch(() => {
-                      window.open(obliguardUrl, '_blank', 'noopener,noreferrer');
+                      window.location.href = obliguardUrl;
                     });
                 }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
-                  text-[#a5b4fc] bg-[#1e1b4b]/50 border-[#4338ca]/60
-                  hover:text-white hover:bg-[#1e1b4b]/80 hover:border-[#6366f1]"
+                  text-[#fb923c] bg-[#431407]/40 border-[#c2410c]/50
+                  hover:text-white hover:bg-[#431407]/60 hover:border-[#ea580c]"
               >
                 <ArrowLeftRight size={13} />
                 Obliguard

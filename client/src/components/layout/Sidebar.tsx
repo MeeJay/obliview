@@ -430,7 +430,7 @@ export function Sidebar() {
           <span className="text-lg font-semibold text-text-primary">Obliview</span>
         </Link>
         <div className="flex items-center gap-1">
-          {obliguardUrl && (
+          {obliguardUrl && !sidebarFloating && (
             <button
               type="button"
               onClick={() => {
@@ -438,21 +438,16 @@ export function Sidebar() {
                   ssoApi.generateSwitchToken()
                     .then((token) => {
                       const from = window.location.origin;
-                      window.open(
-                        `${obliguardUrl}/auth/foreign?token=${encodeURIComponent(token)}&from=${encodeURIComponent(from)}&source=obliview`,
-                        '_blank',
-                        'noopener,noreferrer',
-                      );
+                      window.location.href = `${obliguardUrl}/auth/foreign?token=${encodeURIComponent(token)}&from=${encodeURIComponent(from)}&source=obliview`;
                     })
                     .catch(() => {
-                      // SSO not enabled or error — fall back to direct link
-                      window.open(obliguardUrl, '_blank', 'noopener,noreferrer');
+                      window.location.href = obliguardUrl;
                     });
                 });
               }}
               className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold border transition-all
-                text-[#a5b4fc] bg-[#1e1b4b]/50 border-[#4338ca]/60
-                hover:text-white hover:bg-[#1e1b4b]/80 hover:border-[#6366f1]"
+                text-[#fb923c] bg-[#431407]/40 border-[#c2410c]/50
+                hover:text-white hover:bg-[#431407]/60 hover:border-[#ea580c]"
             >
               <ArrowLeftRight size={12} />
               Obliguard

@@ -12,13 +12,13 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeftRight, Eye, EyeOff, Loader2, ShieldAlert } from 'lucide-react';
+import { ArrowLeftRight, Eye, EyeOff, Loader2, ShieldAlert, Shield } from 'lucide-react';
 import { ssoApi } from '@/api/sso.api';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 
-type Stage = 'loading' | 'link-required' | 'set-password' | 'error';
+type Stage = 'loading' | 'link-required' | 'link-2fa' | 'set-password' | 'error';
 
 export function ForeignAuthPage() {
   const [searchParams] = useSearchParams();
@@ -42,6 +42,13 @@ export function ForeignAuthPage() {
   const [linkPassword, setLinkPassword] = useState('');
   const [linkError, setLinkError]       = useState('');
   const [linking, setLinking]           = useState(false);
+  // 2FA link state
+  const [mfaMethods, setMfaMethods]     = useState<{ totp: boolean; email: boolean }>({ totp: false, email: false });
+  const [mfaMethod, setMfaMethod]       = useState<'totp' | 'email'>('totp');
+  const [mfaCode, setMfaCode]           = useState('');
+  const [mfaError, setMfaError]         = useState('');
+  const [mfaVerifying, setMfaVerifying] = useState(false);
+  const [mfaResending, setMfaResending] = useState(false);
 
   // Derive a friendly source name: use the `source` param if provided, else hostname
   const sourceName = source
@@ -108,7 +115,13 @@ export function ForeignAuthPage() {
     if (!linkPassword) { setLinkError('Password is required'); return; }
     setLinking(true);
     try {
-      await ssoApi.completeLink(linkToken, linkPassword);
+      const data = await ssoApi.completeLink(linkToken, linkPassword);
+      if ('requires2fa' in data) {
+        setMfaMethods(data.methods);
+        setMfaMethod(data.methods.totp ? 'totp' : 'email');
+        setStage('link-2fa');
+        return;
+      }
       void finalize();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Linking failed';
@@ -116,6 +129,28 @@ export function ForeignAuthPage() {
     } finally {
       setLinking(false);
     }
+  }
+
+  // ── 2FA verification for account linking ──────────────────────────────────
+  async function handleVerifyMfa() {
+    setMfaError('');
+    if (!mfaCode) { setMfaError('Code is required'); return; }
+    setMfaVerifying(true);
+    try {
+      await ssoApi.verifyLink2fa(mfaCode, mfaMethod);
+      void finalize();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Invalid code';
+      setMfaError(msg);
+    } finally {
+      setMfaVerifying(false);
+    }
+  }
+
+  async function handleResendMfa() {
+    setMfaResending(true);
+    try { await ssoApi.resendLink2faEmail(); } catch { /* silent */ }
+    finally { setMfaResending(false); }
   }
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -167,6 +202,77 @@ export function ForeignAuthPage() {
           </div>
           <Button className="w-full" onClick={handleLink} disabled={linking || !linkPassword}>
             {linking ? 'Linking…' : 'Link accounts'}
+          </Button>
+          <Button variant="secondary" className="w-full" onClick={() => navigate('/login', { replace: true })}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 2FA step for account linking ─────────────────────────────────────────
+  if (stage === 'link-2fa') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg-primary p-4">
+        <div className="w-full max-w-sm rounded-xl border border-border bg-bg-secondary p-8 space-y-5">
+          <div className="text-center space-y-2">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#1e1b4b]/60 border border-[#4338ca]/60">
+              <Shield size={22} className="text-[#a5b4fc]" />
+            </div>
+            <h1 className="text-lg font-semibold text-text-primary">Two-factor verification</h1>
+            <p className="text-sm text-text-muted">
+              Account <span className="font-medium text-text-secondary">{linkUsername}</span> has 2FA
+              enabled. Enter the code to complete the link.
+            </p>
+          </div>
+
+          {/* Method tabs — only if both are available */}
+          {mfaMethods.totp && mfaMethods.email && (
+            <div className="flex rounded-md border border-border overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => { setMfaMethod('totp'); setMfaCode(''); setMfaError(''); }}
+                className={`flex-1 py-1.5 transition-colors ${mfaMethod === 'totp' ? 'bg-[#1e1b4b]/60 text-[#a5b4fc] font-medium' : 'text-text-muted hover:text-text-primary'}`}
+              >
+                Authenticator app
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMfaMethod('email'); setMfaCode(''); setMfaError(''); }}
+                className={`flex-1 py-1.5 border-l border-border transition-colors ${mfaMethod === 'email' ? 'bg-[#1e1b4b]/60 text-[#a5b4fc] font-medium' : 'text-text-muted hover:text-text-primary'}`}
+              >
+                Email code
+              </button>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Input
+              label={mfaMethod === 'totp' ? '6-digit TOTP code' : 'Code sent to your email'}
+              type="text"
+              inputMode="numeric"
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleVerifyMfa(); }}
+              autoFocus
+              className="tracking-widest text-center"
+            />
+            {mfaMethod === 'email' && (
+              <button
+                type="button"
+                onClick={() => void handleResendMfa()}
+                disabled={mfaResending}
+                className="text-xs text-[#a5b4fc] hover:text-[#a5b4fc]/80 disabled:opacity-50"
+              >
+                {mfaResending ? 'Sending…' : 'Resend code'}
+              </button>
+            )}
+            {mfaError && <p className="text-xs text-status-down">{mfaError}</p>}
+          </div>
+
+          <Button className="w-full" onClick={handleVerifyMfa} disabled={mfaVerifying || mfaCode.length !== 6}>
+            {mfaVerifying ? 'Verifying…' : 'Verify & link accounts'}
           </Button>
           <Button variant="secondary" className="w-full" onClick={() => navigate('/login', { replace: true })}>
             Cancel

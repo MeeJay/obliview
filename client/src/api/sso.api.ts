@@ -32,13 +32,39 @@ export const ssoApi = {
 
   /**
    * Complete the account-linking flow after verifying local password.
+   * Returns either the linked user (no 2FA) or { requires2fa, methods } if 2FA is enabled.
    */
-  async completeLink(linkToken: string, password: string): Promise<{ user: User; isFirstLogin: boolean }> {
+  async completeLink(
+    linkToken: string,
+    password: string,
+  ): Promise<
+    | { user: User; isFirstLogin: boolean }
+    | { requires2fa: true; methods: { totp: boolean; email: boolean } }
+  > {
+    const res = await apiClient.post<ApiResponse<
+      | { user: User; isFirstLogin: boolean }
+      | { requires2fa: true; methods: { totp: boolean; email: boolean } }
+    >>('/sso/complete-link', { linkToken, password });
+    return res.data.data!;
+  },
+
+  /**
+   * Second step of account linking when 2FA is required.
+   * Pass resend: true to resend the email OTP without a code.
+   */
+  async verifyLink2fa(
+    code: string,
+    method: 'totp' | 'email',
+  ): Promise<{ user: User; isFirstLogin: boolean }> {
     const res = await apiClient.post<ApiResponse<{ user: User; isFirstLogin: boolean }>>(
-      '/sso/complete-link',
-      { linkToken, password },
+      '/sso/verify-link-2fa',
+      { code, method },
     );
     return res.data.data!;
+  },
+
+  async resendLink2faEmail(): Promise<void> {
+    await apiClient.post('/sso/verify-link-2fa', { resend: true });
   },
 
   /**
