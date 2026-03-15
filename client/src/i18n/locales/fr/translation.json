@@ -774,7 +774,7 @@
     "dmgSubIntel": "Intel (x86_64)",
     "zip": "Archive Zip (.zip)",
     "buildFromSource": "Compiler depuis les sources",
-    "buildFromSourceDesc": "L'application de bureau se trouve dans le répertoire desktop-app/ du dépôt Obliview.",
+    "buildFromSourceDesc": "L'application de bureau se trouve dans le répertoire obli.tools/ du dépôt Obliview.",
     "howItWorks": "Fonctionnement",
     "step1": "Au premier lancement, saisissez l'URL de votre serveur Obliview. Elle est sauvegardée localement.",
     "step2": "L'application ouvre votre Obliview dans une fenêtre native — sans onglets de navigateur.",

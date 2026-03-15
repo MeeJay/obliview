@@ -966,7 +966,7 @@
     "dmgSubIntel": "Intel (x86_64)",
     "zip": "Zip Archive (.zip)",
     "buildFromSource": "Build from source",
-    "buildFromSourceDesc": "The desktop app lives in the desktop-app/ directory of the Obliview repository.",
+    "buildFromSourceDesc": "The desktop app lives in the obli.tools/ directory of the Obliview repository.",
     "howItWorks": "How it works",
     "step1": "On first launch, enter your Obliview server URL. It is saved locally.",
     "step2": "The app opens your Obliview in a native window — no browser tabs, no address bar.",

@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { Monitor, Apple, Download, ExternalLink, FolderOpen, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-// ── Native desktop-app Go bindings ───────────────────────────────────────────
-// These are injected by the Go overlay into window when running inside Obliview.
+// ── Native Obli.tools Go bindings ────────────────────────────────────────────
+// These are injected by the Go overlay into window when running inside Obli.tools.
 
 type NativeWindow = Window & {
   __obliview_is_native_app?: boolean;
@@ -47,13 +47,13 @@ export function DownloadPage() {
         {
           label: t('download.installer'),
           sublabel: t('download.installerSub'),
-          filename: 'ObliviewSetup.msi',
+          filename: 'ObliToolsSetup.msi',
           primary: true,
         },
         {
           label: t('download.portable'),
           sublabel: t('download.portableSub'),
-          filename: 'Obliview.exe',
+          filename: 'ObliTools.exe',
         },
       ],
     },
@@ -64,24 +64,24 @@ export function DownloadPage() {
         {
           label: t('download.dmg'),
           sublabel: t('download.dmgSubArm'),
-          filename: 'Obliview-arm64.dmg',
+          filename: 'ObliTools-arm64.dmg',
           primary: true,
         },
         {
           label: t('download.dmg'),
           sublabel: t('download.dmgSubIntel'),
-          filename: 'Obliview-amd64.dmg',
+          filename: 'ObliTools-amd64.dmg',
           primary: true,
         },
         {
           label: t('download.zip'),
           sublabel: t('download.dmgSubArm'),
-          filename: 'Obliview-arm64.zip',
+          filename: 'ObliTools-arm64.zip',
         },
         {
           label: t('download.zip'),
           sublabel: t('download.dmgSubIntel'),
-          filename: 'Obliview-amd64.zip',
+          filename: 'ObliTools-amd64.zip',
         },
       ],
     },
@@ -280,7 +280,7 @@ export function DownloadPage() {
         <p className="text-sm text-text-secondary leading-relaxed">
           {t('download.buildFromSourceDesc')}
           {' '}
-          <code className="rounded bg-bg-tertiary px-1.5 py-0.5 text-xs font-mono text-text-primary">desktop-app/</code>{' '}
+          <code className="rounded bg-bg-tertiary px-1.5 py-0.5 text-xs font-mono text-text-primary">obli.tools/</code>{' '}
           It is a Go application using the native OS webview (WebView2 on Windows, WKWebView on macOS).{' '}
           On Windows run{' '}
           <code className="rounded bg-bg-tertiary px-1.5 py-0.5 text-xs font-mono text-text-primary">.\build-windows.ps1</code>{' '}
