@@ -4,7 +4,20 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+// AppEntry holds one registered application in Obli.tools.
+type AppEntry struct {
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Color string `json:"color"` // hex, e.g. "#6366f1"
+}
+
+// alertCache stores the last-known unread alert count per app URL.
+// Updated each time the user visits an app; read by the tab bar JS to show badges.
+var alertCache = map[string]int{}
+var alertCacheMu sync.Mutex
 
 // TabConfig holds the multi-tenant tab-cycling preferences for the desktop app.
 // The two modes are independent and can both be active simultaneously:
@@ -18,11 +31,12 @@ type TabConfig struct {
 
 // Config holds all persisted user preferences.
 type Config struct {
-	URL         string    `json:"url"`
-	Width       int       `json:"width,omitempty"`       // last known window content width  (logical px)
-	Height      int       `json:"height,omitempty"`      // last known window content height (logical px)
-	DownloadDir string    `json:"downloadDir,omitempty"` // preferred folder for native file downloads
-	TabConfig   TabConfig `json:"tabConfig"`             // multi-tenant tab-bar cycling settings
+	URL         string      `json:"url"`
+	Apps        []AppEntry  `json:"apps,omitempty"`        // all registered applications
+	Width       int         `json:"width,omitempty"`       // last known window content width  (logical px)
+	Height      int         `json:"height,omitempty"`      // last known window content height (logical px)
+	DownloadDir string      `json:"downloadDir,omitempty"` // preferred folder for native file downloads
+	TabConfig   TabConfig   `json:"tabConfig"`             // multi-tenant tab-bar cycling settings
 }
 
 // configPath returns the OS-appropriate path for config.json:
@@ -59,6 +73,15 @@ func loadConfig() (*Config, error) {
 	// Apply defaults for TabConfig
 	if cfg.TabConfig.AutoCycleIntervalS <= 0 {
 		cfg.TabConfig.AutoCycleIntervalS = 30
+	}
+
+	// Migrate: if URL is set but Apps is empty (existing users), seed Apps from URL.
+	if cfg.URL != "" && len(cfg.Apps) == 0 {
+		cfg.Apps = []AppEntry{{
+			Name:  "App",
+			URL:   cfg.URL,
+			Color: "#6366f1",
+		}}
 	}
 
 	return &cfg, nil

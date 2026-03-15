@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 
 	webview "github.com/webview/webview_go"
 )
@@ -151,6 +153,311 @@ const overlayJS = `(function(){
   });
 })();`
 
+// appBarJS is injected via w.Init() on every page load, BETWEEN overlayJS and tabBarJS.
+// It renders a 40 px app-level tab bar at the very top of the window when 2+ apps are
+// registered. Sets window.__ov_app_bar_height=40 so tabBarJS can offset itself correctly.
+//
+// Key behaviours:
+//   - Reads apps list from __go_getApps() and alert cache from __go_getAlertCounts()
+//   - Shows one tab per app: coloured dot + name + red badge (last-known unread count)
+//   - Active app: coloured bottom border, default cursor
+//   - Click on inactive app → __go_switchApp(url) then window.location.replace(url)
+//   - "+" button opens a manage dialog: list current apps, remove non-current, add new
+//   - Reports current app's unread count to Go cache every 30 s via __go_reportAlertCount
+//   - Auto-detects app name & colour from URL if it contains "obliance"/"oblimap"/"obliguard"
+const appBarJS = `(function(){
+  if(!/^https?:/.test(location.protocol))return;
+  if(window.__ov_appbar_injected)return;
+  if(/^\/(login|enrollment|forgot-password|reset-password|reset)/.test(location.pathname))return;
+
+  /* Set to 0 synchronously so tabBarJS reads a defined value even before we finish. */
+  window.__ov_app_bar_height=0;
+
+  (async function(){
+    var apps,counts;
+    try{
+      var r=await Promise.all([window.__go_getApps(),window.__go_getAlertCounts()]);
+      apps=r[0]||[];counts=r[1]||{};
+    }catch(e){return;}
+    if(!apps.length)return;
+
+    window.__ov_appbar_injected=true;
+    window.__ov_app_bar_height=40;
+
+    /* Find which app matches the current origin. */
+    var curOrigin=location.origin;
+    var curApp=null;
+    for(var i=0;i<apps.length;i++){
+      try{if(new URL(apps[i].url).origin===curOrigin){curApp=apps[i];break;}}catch(e){}
+    }
+    if(!curApp)curApp=apps[0];
+
+    function domReady(fn){
+      if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});
+      else fn();
+    }
+    domReady(function(){buildBar(apps,curApp,counts);});
+
+    /* Report this app's unread count to Go cache on load and every 30 s. */
+    reportAlerts(curApp.url);
+    setInterval(function(){
+      reportAlerts(curApp.url);
+      window.__go_getAlertCounts().then(updateBdg).catch(function(){});
+    },30000);
+  })();
+
+  /* ── Bar construction ──────────────────────────────────────────────── */
+  function buildBar(apps,curApp,counts){
+    var bar=document.createElement('div');
+    bar.id='__ov_ab';
+    bar.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483641;height:40px;'
+      +'background:#060610;border-bottom:1px solid rgba(255,255,255,.07);'
+      +'display:flex;align-items:stretch;user-select:none;-webkit-user-select:none';
+
+    var tw=document.createElement('div');
+    tw.style.cssText='display:flex;align-items:stretch;flex:1;overflow:hidden';
+
+    apps.forEach(function(app){
+      var active=app===curApp;
+      var col=app.color||'#6366f1';
+      var n=counts[app.url]||0;
+
+      var tab=document.createElement('button');
+      tab.style.cssText=
+        'padding:0 14px;border:none;background:none;'
+        +'border-bottom:2px solid '+(active?col:'transparent')+';'
+        +'color:'+(active?'#e0e0e0':'#4a4a5a')+';'
+        +'font-size:12px;font-weight:'+(active?'600':'400')+';'
+        +'cursor:'+(active?'default':'pointer')+';'
+        +'white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:6px;'
+        +'font-family:system-ui,-apple-system,sans-serif;transition:color .15s,border-color .15s';
+
+      var dot=document.createElement('span');
+      dot.style.cssText='width:6px;height:6px;border-radius:50%;background:'+col
+        +';flex-shrink:0;opacity:'+(active?'1':'.35');
+
+      var nm=document.createElement('span');
+      nm.textContent=app.name;
+
+      var bdg=document.createElement('span');
+      bdg.className='__ov_ab_bdg';
+      bdg.setAttribute('data-url',app.url);
+      bdg.style.cssText='display:'+(n>0?'inline-flex':'none')+';background:#ef4444;color:#fff;'
+        +'border-radius:8px;font-size:10px;font-weight:700;padding:1px 4px;min-width:15px;'
+        +'text-align:center;line-height:1.5;align-items:center;justify-content:center';
+      bdg.textContent=n>9?'9+':String(n);
+
+      tab.appendChild(dot);tab.appendChild(nm);tab.appendChild(bdg);
+
+      if(!active){
+        tab.onmouseenter=function(){tab.style.color='#9090a4';dot.style.opacity='1';};
+        tab.onmouseleave=function(){tab.style.color='#4a4a5a';dot.style.opacity='.35';};
+        tab.onclick=function(){
+          window.__go_switchApp(app.url)
+            .then(function(){window.location.replace(app.url);})
+            .catch(function(){window.location.replace(app.url);});
+        };
+      }
+      tw.appendChild(tab);
+    });
+    bar.appendChild(tw);
+
+    /* "+" manage button */
+    var mgBtn=document.createElement('button');
+    mgBtn.style.cssText=
+      'padding:0 13px;border:none;border-left:1px solid rgba(255,255,255,.06);'
+      +'background:none;color:#333;font-size:18px;cursor:pointer;flex-shrink:0;'
+      +'display:flex;align-items:center;justify-content:center;transition:color .15s;'
+      +'line-height:1;font-family:system-ui,-apple-system,sans-serif';
+    mgBtn.title='Manage apps';
+    mgBtn.textContent='+';
+    mgBtn.onmouseenter=function(){mgBtn.style.color='#aaa';};
+    mgBtn.onmouseleave=function(){mgBtn.style.color='#333';};
+    mgBtn.onclick=function(){openManage(apps,curApp);};
+    bar.appendChild(mgBtn);
+
+    if(document.body)document.body.insertBefore(bar,document.body.firstChild);
+  }
+
+  /* ── Badge update (called on polling interval) ─────────────────────── */
+  function updateBdg(counts){
+    var all=document.querySelectorAll('.__ov_ab_bdg');
+    for(var i=0;i<all.length;i++){
+      var b=all[i];
+      var u=b.getAttribute('data-url');
+      var n=counts[u]||0;
+      b.style.display=n>0?'inline-flex':'none';
+      b.textContent=n>9?'9+':String(n);
+    }
+  }
+
+  /* ── Alert reporting (updates Go cache for this app) ───────────────── */
+  async function reportAlerts(appUrl){
+    try{
+      var r=await fetch('/api/live-alerts/all',{credentials:'include'});
+      var d=await r.json();
+      var n=(d.alerts||[]).filter(function(a){return!a.read;}).length;
+      await window.__go_reportAlertCount(appUrl,n);
+    }catch(e){}
+  }
+
+  /* ── Manage apps dialog ─────────────────────────────────────────────── */
+  function openManage(apps,curApp){
+    if(document.getElementById('__ov_amd'))return;
+    var ov=document.createElement('div');
+    ov.id='__ov_amd';
+    ov.style.cssText=
+      'position:fixed;inset:0;z-index:2147483645;display:flex;align-items:center;'
+      +'justify-content:center;background:rgba(0,0,0,.72);backdrop-filter:blur(10px);'
+      +'font-family:system-ui,-apple-system,sans-serif';
+
+    var bx=document.createElement('div');
+    bx.style.cssText=
+      'background:#13131f;border:1px solid rgba(255,255,255,.12);border-radius:14px;'
+      +'padding:26px 28px;width:420px;color:#e0e0e0';
+
+    var h=document.createElement('h3');
+    h.style.cssText='margin:0 0 16px;font-size:15px;font-weight:700;color:#fff';
+    h.textContent='Manage applications';
+    bx.appendChild(h);
+
+    /* ── Existing apps list ── */
+    var lst=document.createElement('div');
+    lst.style.cssText='margin-bottom:18px';
+    apps.forEach(function(app){
+      var row=document.createElement('div');
+      row.style.cssText=
+        'display:flex;align-items:center;gap:9px;padding:7px 0;'
+        +'border-bottom:1px solid rgba(255,255,255,.05)';
+      var dot=document.createElement('span');
+      dot.style.cssText='width:7px;height:7px;border-radius:50%;background:'
+        +(app.color||'#6366f1')+';flex-shrink:0';
+      var info=document.createElement('div');
+      info.style.cssText='flex:1;min-width:0';
+      var nm=document.createElement('div');
+      nm.style.cssText='font-size:13px;font-weight:500;color:#ccc';
+      nm.textContent=app.name;
+      var ul=document.createElement('div');
+      ul.style.cssText='font-size:10px;color:#444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      ul.textContent=app.url;
+      info.appendChild(nm);info.appendChild(ul);
+      row.appendChild(dot);row.appendChild(info);
+      if(app===curApp){
+        var cur=document.createElement('span');
+        cur.style.cssText='font-size:10px;color:#6366f1;font-weight:500;flex-shrink:0';
+        cur.textContent='current';
+        row.appendChild(cur);
+      }else{
+        var rm=document.createElement('button');
+        rm.style.cssText=
+          'background:none;border:none;color:#333;cursor:pointer;font-size:18px;'
+          +'line-height:1;padding:0;flex-shrink:0;transition:color .15s';
+        rm.textContent='\xd7';
+        rm.onmouseenter=function(){rm.style.color='#f87171';};
+        rm.onmouseleave=function(){rm.style.color='#333';};
+        rm.onclick=async function(){
+          var nw=apps.filter(function(a){return a!==app;});
+          try{await window.__go_saveApps(nw);}catch(e){}
+          ov.remove();location.reload();
+        };
+        row.appendChild(rm);
+      }
+      lst.appendChild(row);
+    });
+    bx.appendChild(lst);
+
+    /* ── Add new app ── */
+    var secTitle=document.createElement('div');
+    secTitle.style.cssText=
+      'font-size:10px;font-weight:600;color:#444;text-transform:uppercase;'
+      +'letter-spacing:.6px;margin-bottom:9px';
+    secTitle.textContent='Add application';
+    bx.appendChild(secTitle);
+
+    function mkInput(ph,type){
+      var i=document.createElement('input');
+      i.type=type||'text';i.placeholder=ph;
+      i.style.cssText=
+        'width:100%;box-sizing:border-box;padding:8px 11px;background:#1a1a28;'
+        +'border:1px solid rgba(255,255,255,.09);border-radius:7px;color:#e0e0e0;'
+        +'font-size:13px;outline:none;margin-bottom:7px;transition:border-color .15s;'
+        +'font-family:system-ui,-apple-system,sans-serif';
+      i.onfocus=function(){i.style.borderColor='#6366f1';};
+      i.onblur=function(){i.style.borderColor='rgba(255,255,255,.09)';};
+      return i;
+    }
+    var urlIn=mkInput('https://obliance.example.com','url');
+    var nmIn=mkInput('App name (e.g. Obliance)');
+    bx.appendChild(urlIn);bx.appendChild(nmIn);
+
+    /* Colour swatches */
+    var sw=document.createElement('div');
+    sw.style.cssText='display:flex;align-items:center;gap:7px;margin-bottom:16px';
+    var swLbl=document.createElement('span');
+    swLbl.style.cssText='font-size:11px;color:#444;flex-shrink:0';
+    swLbl.textContent='Color:';
+    sw.appendChild(swLbl);
+    var selColor={v:'#a78bfa'};
+    ['#6366f1','#a78bfa','#10b981','#fb923c','#f59e0b','#94a3b8'].forEach(function(c){
+      var s=document.createElement('button');
+      s.style.cssText='width:17px;height:17px;border-radius:50%;background:'+c
+        +';border:2px solid '+(c===selColor.v?'#fff':'transparent')
+        +';cursor:pointer;padding:0;transition:border-color .15s;flex-shrink:0';
+      s.setAttribute('data-c',c);
+      s.onclick=function(){
+        selColor.v=c;
+        var all=sw.querySelectorAll('button[data-c]');
+        for(var i=0;i<all.length;i++){
+          all[i].style.borderColor=all[i].getAttribute('data-c')===c?'#fff':'transparent';
+        }
+      };
+      sw.appendChild(s);
+    });
+    bx.appendChild(sw);
+
+    /* Buttons */
+    var btns=document.createElement('div');
+    btns.style.cssText='display:flex;gap:8px;justify-content:flex-end';
+    var cancelB=document.createElement('button');
+    cancelB.style.cssText=
+      'padding:7px 16px;border-radius:7px;border:1px solid rgba(255,255,255,.12);'
+      +'background:none;color:#777;cursor:pointer;font-size:13px;'
+      +'font-family:system-ui,-apple-system,sans-serif;transition:color .15s';
+    cancelB.textContent='Cancel';
+    cancelB.onmouseenter=function(){cancelB.style.color='#ccc';};
+    cancelB.onmouseleave=function(){cancelB.style.color='#777';};
+    cancelB.onclick=function(){ov.remove();};
+
+    var addB=document.createElement('button');
+    addB.style.cssText=
+      'padding:7px 16px;border-radius:7px;border:none;background:#6366f1;'
+      +'color:#fff;cursor:pointer;font-size:13px;font-weight:500;'
+      +'font-family:system-ui,-apple-system,sans-serif;transition:opacity .15s';
+    addB.textContent='Add app';
+    addB.onmouseenter=function(){addB.style.opacity='.85';};
+    addB.onmouseleave=function(){addB.style.opacity='1';};
+    addB.onclick=async function(){
+      var u=urlIn.value.trim();
+      var n=nmIn.value.trim();
+      if(!u){urlIn.focus();return;}
+      if(!/^https?:\/\//i.test(u))u='https://'+u;
+      if(!n){n=u.replace(/^https?:\/\//,'').replace(/\/.*$/,'');}
+      var nw=apps.concat([{name:n,url:u,color:selColor.v}]);
+      try{await window.__go_saveApps(nw);}catch(e){}
+      ov.remove();
+      window.__go_switchApp(u)
+        .then(function(){window.location.replace(u);})
+        .catch(function(){window.location.replace(u);});
+    };
+    btns.appendChild(cancelB);btns.appendChild(addB);
+    bx.appendChild(btns);
+    ov.appendChild(bx);
+    ov.onclick=function(e){if(e.target===ov)ov.remove();};
+    document.body.appendChild(ov);
+    urlIn.focus();
+  }
+})();`
+
 // tabBarJS is injected via w.Init() on every page load, AFTER overlayJS.
 // It detects multi-tenant logins and injects a 40 px fixed tab bar at the
 // top of the window with one tab per tenant (with per-tenant unread badges),
@@ -286,15 +593,17 @@ const tabBarJS = `(function(){
 
   /* ── Tab bar injection ────────────────────────────────────────────── */
   function injectBar(tenants,currentTenantId,tabCfg){
+    /* AH = app bar height (set by appBarJS; 0 for single-app users) */
+    var AH=window.__ov_app_bar_height||0;
     var st=mk('style');
     st.textContent=
-      '#root{margin-top:40px!important;height:calc(100vh - 40px)!important;overflow:hidden!important}'
+      '#root{margin-top:'+(40+AH)+'px!important;height:calc(100vh - '+(40+AH)+'px)!important;overflow:hidden!important}'
       +'#root>div{height:100%!important}'
       +'#__ov_bar *{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}';
     document.head.appendChild(st);
 
     var bar=mk('div',
-      'position:fixed;top:0;left:0;right:0;z-index:2147483640;height:40px;'
+      'position:fixed;top:'+AH+'px;left:0;right:0;z-index:2147483640;height:40px;'
       +'background:#0a0a13;border-bottom:1px solid rgba(255,255,255,.09);'
       +'display:flex;align-items:stretch;user-select:none');
     bar.id='__ov_bar';
@@ -388,7 +697,7 @@ const tabBarJS = `(function(){
     if(ex){ex.remove();return;}
 
     var panel=mk('div',
-      'position:fixed;top:40px;right:0;z-index:2147483639;width:370px;'
+      'position:fixed;top:'+(40+(window.__ov_app_bar_height||0))+'px;right:0;z-index:2147483639;width:370px;'
       +'height:calc(100vh - 40px);background:#0e0e18;'
       +'border-left:1px solid rgba(255,255,255,.09);'
       +'display:flex;flex-direction:column;'
@@ -763,6 +1072,49 @@ function err(m){
 </body>
 </html>`
 
+// appNameFromURL guesses a friendly app name from the URL.
+// Recognises the four Obli* apps by substring; falls back to the hostname prefix.
+func appNameFromURL(rawURL string) string {
+	lower := strings.ToLower(rawURL)
+	switch {
+	case strings.Contains(lower, "obliance"):
+		return "Obliance"
+	case strings.Contains(lower, "oblimap"):
+		return "Oblimap"
+	case strings.Contains(lower, "obliguard"):
+		return "Obliguard"
+	case strings.Contains(lower, "obliview"):
+		return "Obliview"
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Hostname() == "" {
+		return "App"
+	}
+	h := u.Hostname()
+	if idx := strings.Index(h, "."); idx > 0 {
+		h = h[:idx]
+	}
+	if h != "" {
+		return strings.ToUpper(h[:1]) + h[1:]
+	}
+	return "App"
+}
+
+// appColorFromURL returns the brand colour for a known Obli* app, or indigo default.
+func appColorFromURL(rawURL string) string {
+	lower := strings.ToLower(rawURL)
+	switch {
+	case strings.Contains(lower, "obliance"):
+		return "#a78bfa" // violet
+	case strings.Contains(lower, "oblimap"):
+		return "#10b981" // emerald
+	case strings.Contains(lower, "obliguard"):
+		return "#fb923c" // orange
+	default:
+		return "#6366f1" // indigo (Obliview default)
+	}
+}
+
 func main() {
 	cfg, _ := loadConfig()
 
@@ -788,14 +1140,29 @@ func main() {
 
 	// __go_saveURL is callable from JS on both the setup page and the gear dialog.
 	// It persists the URL to disk; the JS side then does window.location.replace(url).
-	// We update cfg in-place so that Width/Height are not overwritten.
-	if err := w.Bind("__go_saveURL", func(url string) {
-		cfg.URL = url
+	// Also ensures the URL is present in the Apps list (seeds first entry on new installs).
+	if err := w.Bind("__go_saveURL", func(rawURL string) {
+		cfg.URL = rawURL
+		found := false
+		for _, a := range cfg.Apps {
+			if a.URL == rawURL {
+				found = true
+				break
+			}
+		}
+		if !found {
+			entry := AppEntry{
+				Name:  appNameFromURL(rawURL),
+				URL:   rawURL,
+				Color: appColorFromURL(rawURL),
+			}
+			cfg.Apps = append([]AppEntry{entry}, cfg.Apps...)
+		}
 		if err := saveConfig(cfg); err != nil {
-			fmt.Println("[obliview] error saving config:", err)
+			fmt.Println("[oblitools] error saving config:", err)
 		}
 	}); err != nil {
-		fmt.Println("[obliview] bind error:", err)
+		fmt.Println("[oblitools] bind error:", err)
 	}
 
 	// __go_saveSize is called from overlayJS (debounced resize listener).
@@ -870,6 +1237,58 @@ func main() {
 		fmt.Println("[obliview] bind error:", err)
 	}
 
+	// __go_getApps returns the ordered list of registered applications.
+	// Called by appBarJS on every page load.
+	if err := w.Bind("__go_getApps", func() []AppEntry {
+		return cfg.Apps
+	}); err != nil {
+		fmt.Println("[oblitools] bind error:", err)
+	}
+
+	// __go_saveApps replaces the full apps list (add or remove entries).
+	if err := w.Bind("__go_saveApps", func(apps []AppEntry) {
+		cfg.Apps = apps
+		if err := saveConfig(cfg); err != nil {
+			fmt.Println("[oblitools] error saving apps:", err)
+		}
+	}); err != nil {
+		fmt.Println("[oblitools] bind error:", err)
+	}
+
+	// __go_switchApp updates the current URL in config (JS then navigates).
+	if err := w.Bind("__go_switchApp", func(rawURL string) {
+		cfg.URL = rawURL
+		if err := saveConfig(cfg); err != nil {
+			fmt.Println("[oblitools] error saving config:", err)
+		}
+	}); err != nil {
+		fmt.Println("[oblitools] bind error:", err)
+	}
+
+	// __go_reportAlertCount updates the in-memory badge cache for one app URL.
+	// Called by appBarJS after fetching /api/live-alerts/all on the current app.
+	if err := w.Bind("__go_reportAlertCount", func(appURL string, count float64) {
+		alertCacheMu.Lock()
+		alertCache[appURL] = int(count)
+		alertCacheMu.Unlock()
+	}); err != nil {
+		fmt.Println("[oblitools] bind error:", err)
+	}
+
+	// __go_getAlertCounts returns a snapshot of the full in-memory badge cache.
+	// Called by appBarJS to refresh badges for all app tabs.
+	if err := w.Bind("__go_getAlertCounts", func() map[string]int {
+		alertCacheMu.Lock()
+		defer alertCacheMu.Unlock()
+		cp := make(map[string]int, len(alertCache))
+		for k, v := range alertCache {
+			cp[k] = v
+		}
+		return cp
+	}); err != nil {
+		fmt.Println("[oblitools] bind error:", err)
+	}
+
 	// __go_saveTabConfig persists tab-cycling settings to disk.
 	// JS sends: autoCycleEnabled (bool), autoCycleIntervalS (number → float64),
 	//           followAlertsEnabled (bool).
@@ -886,7 +1305,10 @@ func main() {
 
 	// Inject the overlay script on every page load.
 	w.Init(overlayJS)
+	// Inject the app-level tab bar (shows tabs for Obliview/Obliance/Oblimap/Obliguard).
+	w.Init(appBarJS)
 	// Inject the multi-tenant tab bar (no-op for single-tenant installs).
+	// Reads window.__ov_app_bar_height set by appBarJS to offset itself correctly.
 	w.Init(tabBarJS)
 	// Inject the app version so the React app can compare against the server's
 	// latest-desktop-version endpoint and show an update banner if needed.
