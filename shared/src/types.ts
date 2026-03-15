@@ -434,22 +434,25 @@ export interface AppConfig {
   enable_obliance_sso: boolean;
 }
 
-/** Obliguard integration config — stored as JSON under key "obliguard_config" in app_config. */
+/** Obliguard integration config — returned to clients (never exposes raw apiKey). */
 export interface ObliguardConfig {
-  url: string;
-  apiKey: string;
+  url: string | null;
+  apiKey?: string;
+  apiKeySet?: boolean;
 }
 
-/** Oblimap integration config — stored as JSON under key "oblimap_config" in app_config. */
+/** Oblimap integration config — returned to clients (never exposes raw apiKey). */
 export interface OblimapConfig {
-  url: string;
-  apiKey: string;
+  url: string | null;
+  apiKey?: string;
+  apiKeySet?: boolean;
 }
 
-/** Obliance integration config — stored as JSON under key "obliance_config" in app_config. */
+/** Obliance integration config — returned to clients (never exposes raw apiKey). */
 export interface OblianceConfig {
-  url: string;
-  apiKey: string;
+  url: string | null;
+  apiKey?: string;
+  apiKeySet?: boolean;
 }
 
 /**

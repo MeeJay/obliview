@@ -28,8 +28,9 @@ export const appConfigApi = {
     return res.data.data!;
   },
 
-  async setObliguardConfig(cfg: ObliguardConfig): Promise<void> {
-    await apiClient.put('/admin/config/obliguard', cfg);
+  async patchObliguardConfig(patch: { url?: string | null; apiKey?: string | null }): Promise<ObliguardConfig> {
+    const res = await apiClient.put<ApiResponse<ObliguardConfig>>('/admin/config/obliguard', patch);
+    return res.data.data!;
   },
 
   async proxyObliguardLink(uuid: string): Promise<string | null> {
@@ -44,8 +45,9 @@ export const appConfigApi = {
     return res.data.data!;
   },
 
-  async setOblimapConfig(cfg: OblimapConfig): Promise<void> {
-    await apiClient.put('/admin/config/oblimap', cfg);
+  async patchOblimapConfig(patch: { url?: string | null; apiKey?: string | null }): Promise<OblimapConfig> {
+    const res = await apiClient.put<ApiResponse<OblimapConfig>>('/admin/config/oblimap', patch);
+    return res.data.data!;
   },
 
   async proxyOblimapLink(uuid: string): Promise<string | null> {
@@ -60,8 +62,9 @@ export const appConfigApi = {
     return res.data.data!;
   },
 
-  async setOblianceConfig(cfg: OblianceConfig): Promise<void> {
-    await apiClient.put('/admin/config/obliance', cfg);
+  async patchOblianceConfig(patch: { url?: string | null; apiKey?: string | null }): Promise<OblianceConfig> {
+    const res = await apiClient.put<ApiResponse<OblianceConfig>>('/admin/config/obliance', patch);
+    return res.data.data!;
   },
 
   async proxyOblianceLink(uuid: string): Promise<string | null> {
