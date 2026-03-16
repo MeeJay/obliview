@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	webview "github.com/webview/webview_go"
@@ -1254,8 +1256,25 @@ func appColorFromURL(rawURL string) string {
 	}
 }
 
+// navigateShell writes the shell HTML to a temp file and navigates the webview to
+// that file:// URL.  Using w.Navigate("file:///...") instead of w.SetHtml() is
+// necessary because WebView2's NavigateToString does not reliably execute inline
+// <script> tags — the CSS loads but JavaScript silently never fires.
+// A fixed filename (oblitools_shell.html) is used so the file is simply overwritten
+// on every shell rebuild; no cleanup is needed.
+func navigateShell(w webview.WebView, html string) {
+	path := filepath.Join(os.TempDir(), "oblitools_shell.html")
+	if err := os.WriteFile(path, []byte(html), 0o600); err != nil {
+		// Last-resort fallback — may not execute scripts on all WebView2 versions.
+		w.SetHtml(html)
+		return
+	}
+	// file:///C:/Users/.../AppData/Local/Temp/oblitools_shell.html
+	w.Navigate("file:///" + filepath.ToSlash(path))
+}
+
 // generateShellHTML builds the persistent multi-app shell page that is loaded via
-// w.SetHtml().  The shell renders the app-level tab bar and hosts one <iframe> per
+// navigateShell().  The shell renders the app-level tab bar and hosts one <iframe> per
 // configured app so that switching tabs merely shows/hides frames — no full reload,
 // no SSO round-trip — preserving React state and keeping all Socket.io connections
 // alive for background notification processing.
@@ -1303,9 +1322,51 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610}
   position:absolute;inset:0;width:100%%;height:100%%;
   border:none;display:none;background:#060610}
 #ot-frames iframe.active{display:block}
+/* ── Manage button (⚙) in right corner of shell bar ─── */
+#ot-manage{
+  flex-shrink:0;width:36px;height:40px;border:none;background:none;cursor:pointer;
+  color:#4a4a5a;font-size:16px;display:flex;align-items:center;justify-content:center;
+  transition:color .15s}
+#ot-manage:hover{color:#9090a4}
+/* ── Manage overlay ──────────────────────────────────── */
+#ot-overlay{
+  display:none;position:fixed;inset:0;z-index:10000;
+  background:rgba(0,0,0,.55);align-items:flex-start;justify-content:flex-end}
+#ot-overlay.open{display:flex}
+#ot-panel{
+  margin:44px 8px 0 0;background:#13141a;border:1px solid rgba(255,255,255,.1);
+  border-radius:12px;padding:16px;width:300px;
+  font-family:system-ui,-apple-system,sans-serif;box-shadow:0 16px 48px rgba(0,0,0,.6)}
+#ot-panel h3{font-size:13px;font-weight:600;color:#ccc;margin:0 0 12px;
+  letter-spacing:.04em;text-transform:uppercase}
+.ot-app-row{display:flex;align-items:center;gap:8px;padding:6px 0;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.ot-app-row:last-child{border-bottom:none}
+.ot-app-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.ot-app-name{flex:1;font-size:13px;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ot-app-url{font-size:10px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ot-app-del{background:none;border:none;color:#444;cursor:pointer;font-size:14px;
+  padding:2px 4px;border-radius:4px;transition:color .15s}
+.ot-app-del:hover{color:#f87171}
+#ot-add-row{display:flex;gap:6px;margin-top:12px}
+#ot-add-input{flex:1;background:#1e1e28;border:1px solid rgba(255,255,255,.1);
+  border-radius:6px;color:#ccc;font-size:12px;padding:6px 10px;outline:none}
+#ot-add-input:focus{border-color:#6366f1}
+#ot-add-btn{background:#6366f1;border:none;border-radius:6px;color:#fff;
+  font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap;transition:opacity .15s}
+#ot-add-btn:hover{opacity:.85}
 </style>
 </head><body>
-<div id="ot-bar"><div id="ot-tabs"></div></div>
+<div id="ot-bar"><div id="ot-tabs"></div><button id="ot-manage" title="Manage apps">&#x2699;</button></div>
+<!-- Manage overlay -->
+<div id="ot-overlay"><div id="ot-panel">
+  <h3>Apps</h3>
+  <div id="ot-app-list"></div>
+  <div id="ot-add-row">
+    <input id="ot-add-input" type="url" placeholder="https://my-app.example.com">
+    <button id="ot-add-btn">Add</button>
+  </div>
+</div></div>
 <div id="ot-frames"></div>
 <script>
 /* Catch-all: surface any JS error visibly in the tab bar. */
@@ -1490,6 +1551,52 @@ function __ot_init(){
     if(typeof window.__go_getAlertCounts==='function')
       window.__go_getAlertCounts().then(updateBadges).catch(function(){});
   },5000);
+
+  /* ── Manage overlay (⚙ button) ──────────────────────────────────────── */
+  var overlay=document.getElementById('ot-overlay');
+  var manageBtn=document.getElementById('ot-manage');
+  function refreshAppList(){
+    var list=document.getElementById('ot-app-list');
+    list.innerHTML='';
+    APPS.forEach(function(app,i){
+      var row=document.createElement('div');row.className='ot-app-row';
+      var dot=document.createElement('span');dot.className='ot-app-dot';
+      dot.style.background=app.color||'#6366f1';
+      var info=document.createElement('div');info.style.cssText='flex:1;min-width:0';
+      var nm=document.createElement('div');nm.className='ot-app-name';nm.textContent=app.name;
+      var url=document.createElement('div');url.className='ot-app-url';url.textContent=app.url;
+      info.appendChild(nm);info.appendChild(url);
+      var del=document.createElement('button');del.className='ot-app-del';del.textContent='\u2715';
+      del.title='Remove';
+      del.addEventListener('click',function(){
+        APPS.splice(i,1);
+        if(typeof window.__go_saveApps==='function')
+          window.__go_saveApps(APPS).catch(function(){});
+      });
+      row.appendChild(dot);row.appendChild(info);row.appendChild(del);
+      list.appendChild(row);
+    });
+  }
+  manageBtn.addEventListener('click',function(e){
+    e.stopPropagation();
+    refreshAppList();
+    overlay.classList.toggle('open');
+  });
+  overlay.addEventListener('click',function(e){
+    if(e.target===overlay)overlay.classList.remove('open');
+  });
+  document.getElementById('ot-add-btn').addEventListener('click',function(){
+    var u=document.getElementById('ot-add-input').value.trim();
+    if(!u)return;
+    if(!/^https?:\/\//i.test(u))u='https://'+u;
+    try{new URL(u);}catch(e){return;}
+    if(typeof window.__go_saveURL==='function')
+      window.__go_saveURL(u).catch(function(){});
+    document.getElementById('ot-add-input').value='';
+  });
+  document.getElementById('ot-add-input').addEventListener('keydown',function(e){
+    if(e.key==='Enter')document.getElementById('ot-add-btn').click();
+  });
 }
 /* Run after DOM is ready (elements before this script are already parsed,
    but using DOMContentLoaded guards against any webview timing quirks). */
@@ -1551,7 +1658,7 @@ func main() {
 		// Transition from the setup page to the persistent shell.
 		// Must be dispatched on the UI thread (binding callbacks run on a worker).
 		w.Dispatch(func() {
-			w.SetHtml(generateShellHTML(*cfg, appVersion))
+			navigateShell(w, generateShellHTML(*cfg, appVersion))
 		})
 	}); err != nil {
 		fmt.Println("[oblitools] bind error:", err)
@@ -1654,7 +1761,7 @@ func main() {
 			if len(cfg.Apps) == 0 {
 				w.SetHtml(setupHTML)
 			} else {
-				w.SetHtml(generateShellHTML(*cfg, appVersion))
+				navigateShell(w, generateShellHTML(*cfg, appVersion))
 			}
 		})
 	}); err != nil {
@@ -1757,7 +1864,7 @@ func main() {
 	} else {
 		// Launch the persistent iframe shell.  All apps load inside iframes so
 		// switching tabs is instant and all Socket.io connections stay alive.
-		w.SetHtml(generateShellHTML(*cfg, appVersion))
+		navigateShell(w, generateShellHTML(*cfg, appVersion))
 	}
 
 	w.Run()
