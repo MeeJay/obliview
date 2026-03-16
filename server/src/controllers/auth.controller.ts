@@ -56,7 +56,10 @@ export const authController = {
       req.session.role = user.role;
       await setSessionTenant(req, user.id);
 
-      res.json({ success: true, data: { user } });
+      // Include sessionToken so cross-site iframe contexts (ObliTools WebView2
+      // shell) can send it as X-Auth-Token header instead of relying on cookies,
+      // which Chrome blocks in cross-site iframes regardless of SameSite/Partitioned.
+      res.json({ success: true, data: { user, sessionToken: req.sessionID } });
     } catch (err) {
       next(err);
     }

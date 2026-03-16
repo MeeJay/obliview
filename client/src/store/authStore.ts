@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { User, UserPermissions, PermissionLevel } from '@obliview/shared';
 import { authApi, type LoginResult } from '../api/auth.api';
+import { isInObliTools, OBLITOOLS_TOKEN_KEY } from '../api/client';
 import { connectSocket, disconnectSocket } from '../socket/socketClient';
 import { useLiveAlertsStore } from './liveAlertsStore';
 import { setLanguage } from '../i18n';
@@ -62,6 +63,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const user = result.user;
+      // In ObliTools iframe context cookies are blocked by Chrome's cross-site policy.
+      // Store the session token so the API client can send it as X-Auth-Token header.
+      if (isInObliTools && result.sessionToken) {
+        sessionStorage.setItem(OBLITOOLS_TOKEN_KEY, result.sessionToken);
+      }
       set({ user, isLoading: false });
       syncPreferencesToStore(user);
       connectSocket(user.id);
@@ -102,6 +108,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await authApi.logout();
     } finally {
       disconnectSocket();
+      sessionStorage.removeItem(OBLITOOLS_TOKEN_KEY);
       set({ user: null, permissions: null, requires2faSetup: false });
     }
   },

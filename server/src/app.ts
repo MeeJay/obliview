@@ -104,6 +104,37 @@ export function createApp() {
     }),
   );
 
+  // Iframe token auth — fallback for cross-site iframe contexts (ObliTools WebView2
+  // shell at http://127.0.0.1) where Chrome blocks ALL cookies regardless of
+  // SameSite/Secure/Partitioned settings.  After a successful login the server
+  // returns sessionToken (= req.sessionID) in the response body; the client stores
+  // it in sessionStorage and sends it as X-Auth-Token on every subsequent request.
+  // This middleware reads that header, loads the matching session from the store,
+  // and populates req.session so the rest of the pipeline (requireAuth, controllers)
+  // sees an authenticated request — exactly as if the cookie had been sent.
+  app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
+    if (req.session?.userId) return next(); // already authenticated via cookie
+
+    const token = req.headers['x-auth-token'];
+    if (!token || typeof token !== 'string') return next();
+
+    sessionStore.get(token, (err, sessionData) => {
+      if (!err && sessionData) {
+        const s = sessionData as Record<string, unknown>;
+        if (typeof s.userId === 'number') {
+          req.session.userId        = s.userId;
+          req.session.username      = (s.username as string)  ?? '';
+          req.session.role          = (s.role as string)      ?? 'user';
+          req.session.currentTenantId = (s.currentTenantId as number) ?? 1;
+          if (typeof s.twoFaVerified === 'boolean') {
+            (req.session as Record<string, unknown>).twoFaVerified = s.twoFaVerified;
+          }
+        }
+      }
+      next();
+    });
+  });
+
   // Rate limiting — runs after session so authenticated users can be skipped.
   // Only unauthenticated endpoints (login page, public health, etc.) are limited.
   app.use(apiLimiter);
