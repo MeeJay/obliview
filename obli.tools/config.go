@@ -9,9 +9,10 @@ import (
 
 // AppEntry holds one registered application in Obli.tools.
 type AppEntry struct {
-	Name  string `json:"name"`
-	URL   string `json:"url"`
-	Color string `json:"color"` // hex, e.g. "#6366f1"
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Color   string `json:"color"`   // hex, e.g. "#6366f1"
+	LastURL string `json:"lastUrl,omitempty"` // last-visited path, e.g. "/agents/5"
 }
 
 // alertCache stores the last-known unread alert count per app URL.

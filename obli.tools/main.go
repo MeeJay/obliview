@@ -196,6 +196,12 @@ const appBarJS = `(function(){
     }
     if(!curApp)curApp=apps[0];
 
+    /* Persist the current path so switching back restores the last page. */
+    var curPath=location.pathname+location.search+location.hash;
+    if(curPath&&curPath!=='/'&&typeof window.__go_saveAppLastURL==='function'){
+      window.__go_saveAppLastURL(curApp.url,curPath).catch(function(){});
+    }
+
     function domReady(fn){
       if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});
       else fn();
@@ -305,16 +311,24 @@ const appBarJS = `(function(){
   /* ── SSO-aware navigation ───────────────────────────────────────────── */
   /* Instead of a bare window.location.replace, we first generate a 60s SSO
      token from the CURRENT app, then navigate to {targetApp}/auth/foreign.
-     Falls back to direct navigation if token generation fails (e.g. non-admin). */
-  function ssoNavigate(targetApp){
+     Falls back to direct navigation if token generation fails (e.g. non-admin).
+     destPath (optional): if provided, overrides the saved lastUrl redirect target.
+     This lets agent deep-link buttons force a specific page instead of restoring
+     the last visited page. */
+  function ssoNavigate(targetApp,destPath){
     window.__go_switchApp(targetApp.url).catch(function(){});
     fetch('/api/sso/generate-token',{method:'POST',credentials:'include'})
       .then(function(r){return r.json();})
       .then(function(d){
         var tok=(d.data&&d.data.token)||null;
+        /* Determine the redirect path: forced path > last saved URL > dashboard */
+        var returnPath=destPath||targetApp.lastUrl||'/';
+        /* Only allow relative paths (security: prevent open redirect) */
+        if(!/^\//.test(returnPath))returnPath='/';
         var dest=tok
           ?targetApp.url+'/auth/foreign?token='+encodeURIComponent(tok)+'&from='+encodeURIComponent(location.origin)+'&source=oblitools'
-          :targetApp.url;
+            +'&redirect='+encodeURIComponent(returnPath)
+          :targetApp.url+(returnPath!=='/'?returnPath:'');
         window.location.replace(dest);
       })
       .catch(function(){window.location.replace(targetApp.url);});
@@ -1341,6 +1355,32 @@ func main() {
 			cp[k] = v
 		}
 		return cp
+	}); err != nil {
+		fmt.Println("[oblitools] bind error:", err)
+	}
+
+	// __go_saveAppLastURL persists the last-visited path for a specific app.
+	// Called by appBarJS on every page navigation so that switching back to an
+	// app tab restores the user to where they were rather than the dashboard.
+	// appUrl is the app's root URL (matched by origin); lastUrl is the path.
+	if err := w.Bind("__go_saveAppLastURL", func(appUrl, lastUrl string) {
+		appOrigin := ""
+		if u, err := url.Parse(appUrl); err == nil {
+			appOrigin = u.Scheme + "://" + u.Host
+		}
+		for i := range cfg.Apps {
+			entryOrigin := ""
+			if u, err := url.Parse(cfg.Apps[i].URL); err == nil {
+				entryOrigin = u.Scheme + "://" + u.Host
+			}
+			if entryOrigin != "" && entryOrigin == appOrigin {
+				cfg.Apps[i].LastURL = lastUrl
+				if err := saveConfig(cfg); err != nil {
+					fmt.Println("[oblitools] error saving last url:", err)
+				}
+				break
+			}
+		}
 	}); err != nil {
 		fmt.Println("[oblitools] bind error:", err)
 	}
