@@ -76,16 +76,21 @@ export function createApp() {
       resave: false,
       saveUninitialized: false,
       cookie: {
-        secure: config.forceHttps,
+        // SameSite=None + Secure must ALWAYS be set together.
+        // Chrome 80+ silently downgrades SameSite=None without Secure to Lax,
+        // which blocks cookies on every authenticated fetch/XHR in a cross-site
+        // iframe context (e.g. Obli.tools shell at http://127.0.0.1 embedding
+        // this app → top-level origin ≠ app origin → SameSite=Lax blocks all XHR).
+        //
+        // We enable both when HTTPS is in use:
+        //   FORCE_HTTPS=true  → explicit reverse-proxy setup (Nginx, Traefik, NPM…)
+        //   NODE_ENV=production → Docker deployment (served behind HTTPS in prod)
+        //
+        // Plain-HTTP / dev deployments keep lax + insecure (ObliTools iframes won't
+        // work there because browsers require Secure for SameSite=None to be valid).
+        secure: config.forceHttps || config.nodeEnv === 'production',
         httpOnly: true,
         maxAge: config.sessionMaxAge,
-        // SameSite=None (+ Secure) allows the session cookie to be sent when this
-        // app is embedded in an iframe by the Obli.tools native desktop shell
-        // (top-level origin 127.0.0.1 ≠ app origin → cross-site context for
-        // SameSite=Lax, which would block the cookie on every authenticated request).
-        // We activate 'none' whenever HTTPS is in use (FORCE_HTTPS=true or
-        // NODE_ENV=production, both of which imply a secure TLS connection).
-        // Plain-HTTP dev deployments keep 'lax' since SameSite=None requires Secure.
         sameSite: config.forceHttps || config.nodeEnv === 'production' ? 'none' : 'lax',
       },
     }),
