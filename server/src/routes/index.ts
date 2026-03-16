@@ -23,6 +23,7 @@ import obliguardRoutes from './obliguard.routes';
 import oblimapRoutes from './oblimap.routes';
 import oblianceRoutes from './obliance.routes';
 import ssoRoutes from './sso.routes';
+import systemRoutes from './system.routes';
 
 const router = Router();
 
@@ -31,6 +32,7 @@ router.use('/auth', authRoutes);
 router.use('/heartbeat', heartbeatRoutes); // push monitors (no session)
 router.use('/agent', agentRoutes);          // agent push (authenticated via API key)
 router.use('/admin/config', appConfigRoutes);
+router.use('/system', systemRoutes);         // system info / about (admin only, no tenant required)
 router.use('/obliguard', obliguardRoutes);   // /link (Bearer auth) + /proxy-link (session auth)
 router.use('/oblimap', oblimapRoutes);       // /link (Bearer auth) + /proxy-link (session auth)
 router.use('/obliance', oblianceRoutes);    // /link (Bearer auth) + /proxy-link (session auth)

@@ -36,6 +36,7 @@ var appVersion = "1.0.0"
 //     On save → calls window.__go_saveURL(url) then navigates.
 const overlayJS = `(function(){
   if(!/^https?:/.test(location.protocol))return;
+  if(document.documentElement&&document.documentElement.dataset.oblitoolsShell)return;
   if(window.__ov_injected)return;
   window.__ov_injected=true;
   /* Flag recognised by every Obli* app header to hide the cross-app switch buttons. */
@@ -169,6 +170,7 @@ const overlayJS = `(function(){
 //   - Auto-detects app name & colour from URL if it contains "obliance"/"oblimap"/"obliguard"
 const appBarJS = `(function(){
   if(!/^https?:/.test(location.protocol))return;
+  if(document.documentElement&&document.documentElement.dataset.oblitoolsShell)return;
   if(window.__ov_appbar_injected)return;
   if(/^\/(login|enrollment|forgot-password|reset-password|reset)/.test(location.pathname))return;
 
@@ -612,6 +614,7 @@ const appBarJS = `(function(){
 //   - Tenant name badge shown for every alert in the panel (not just cross-tenant)
 const tabBarJS = `(function(){
   if(!/^https?:/.test(location.protocol))return;
+  if(document.documentElement&&document.documentElement.dataset.oblitoolsShell)return;
   if(window.__ov_tabs_injected)return;
   if(/^\/(login|enrollment|forgot-password|reset-password|reset)/.test(location.pathname))return;
 
@@ -1191,7 +1194,13 @@ function go(){
   if(!u){err('Please enter a URL');return;}
   if(!/^https?:\/\//i.test(u))u='https://'+u;
   try{new URL(u);}catch(e){err('Please enter a valid URL');return;}
-  window.__go_saveURL(u).then(function(){window.location.replace(u);});
+  /* Go handler calls w.SetHtml(shell) via Dispatch — no JS-side navigation needed. */
+  var btn=document.querySelector('button');
+  if(btn){btn.textContent='Connecting\u2026';btn.disabled=true;}
+  window.__go_saveURL(u).catch(function(){
+    err('Failed to connect');
+    if(btn){btn.textContent='Connect \u2192';btn.disabled=false;}
+  });
 }
 function err(m){
   var e=document.getElementById('e');
@@ -1259,7 +1268,7 @@ func generateShellHTML(cfg Config, ver string) string {
 	appsJSON, _ := json.Marshal(cfg.Apps)
 	activeURL := cfg.URL
 
-	return fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="utf-8">
+	return fmt.Sprintf(`<!DOCTYPE html><html data-oblitools-shell="1"><head><meta charset="utf-8">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%%;height:100%%;overflow:hidden;background:#060610}
@@ -1299,7 +1308,12 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610}
 <div id="ot-bar"><div id="ot-tabs"></div></div>
 <div id="ot-frames"></div>
 <script>
-(function(){
+/* Catch-all: surface any JS error visibly in the tab bar. */
+window.onerror=function(msg,src,line){
+  var bar=document.getElementById('ot-tabs');
+  if(bar)bar.innerHTML='<span style="color:#ef4444;font-size:11px;padding:0 12px;line-height:40px">Shell error: '+msg+' ('+(line||'?')+')</span>';
+};
+function __ot_init(){
   var APPS=%s;
   var ACTIVE_URL=%q;
   var loaded=[];       // boolean per index: has src been set?
@@ -1476,7 +1490,14 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610}
     if(typeof window.__go_getAlertCounts==='function')
       window.__go_getAlertCounts().then(updateBadges).catch(function(){});
   },5000);
-})();
+}
+/* Run after DOM is ready (elements before this script are already parsed,
+   but using DOMContentLoaded guards against any webview timing quirks). */
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',__ot_init,{once:true});
+}else{
+  __ot_init();
+}
 </script>
 </body></html>`, appsJSON, activeURL)
 }
