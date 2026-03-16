@@ -1,15 +1,34 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
+	"sync"
 
 	webview "github.com/webview/webview_go"
 )
+
+// shellServeURL is set once in main() to "http://127.0.0.1:PORT/" after the
+// localhost shell server is started.  navigateShell() reads it to navigate
+// the webview to the shell page using a real http:// URL so that WebView2
+// reliably executes the page's inline <script> tags (WebView2 blocks script
+// execution on data:, file:// and about: protocol pages in many configurations).
+var shellServeURL string
+
+// shellMu guards shellHTMLStore and shellNavSeq.
+var shellMu sync.Mutex
+
+// shellHTMLStore holds the current shell HTML; updated by navigateShell before
+// each navigation so the localhost handler always serves the latest version.
+var shellHTMLStore string
+
+// shellNavSeq is incremented on every navigateShell call and appended as a
+// ?v=N query parameter so that navigating back to the same base URL forces
+// WebView2 to issue a fresh HTTP request (bypassing any browser-side caching).
+var shellNavSeq int
 
 // defaultW / defaultH — initial window content size on first launch.
 const defaultW, defaultH = 1280, 800
@@ -38,7 +57,17 @@ var appVersion = "1.0.0"
 //     On save → calls window.__go_saveURL(url) then navigates.
 const overlayJS = `(function(){
   if(!/^https?:/.test(location.protocol))return;
+  /* Shell page is always served from 127.0.0.1 — skip before DOM is parsed. */
+  if(location.hostname==='127.0.0.1'||location.hostname==='localhost')return;
   if(document.documentElement&&document.documentElement.dataset.oblitoolsShell)return;
+  /* Inside an ObliTools iframe: set the native-app flags (so apps can hide the
+     "Download App" banner, enable sounds, etc.) then return early — the ⚙ gear
+     button and resize listener are not meaningful inside an app iframe. */
+  var _inFrame=false;try{_inFrame=window!==window.top;}catch(e){_inFrame=true;}
+  if(_inFrame){
+    window.__obliview_is_native_app=window.__obliance_is_native_app=window.__oblimap_is_native_app=window.__obliguard_is_native_app=true;
+    return;
+  }
   if(window.__ov_injected)return;
   window.__ov_injected=true;
   /* Flag recognised by every Obli* app header to hide the cross-app switch buttons. */
@@ -172,6 +201,8 @@ const overlayJS = `(function(){
 //   - Auto-detects app name & colour from URL if it contains "obliance"/"oblimap"/"obliguard"
 const appBarJS = `(function(){
   if(!/^https?:/.test(location.protocol))return;
+  /* Shell page is always served from 127.0.0.1 — skip before DOM is parsed. */
+  if(location.hostname==='127.0.0.1'||location.hostname==='localhost')return;
   if(document.documentElement&&document.documentElement.dataset.oblitoolsShell)return;
   if(window.__ov_appbar_injected)return;
   if(/^\/(login|enrollment|forgot-password|reset-password|reset)/.test(location.pathname))return;
@@ -182,7 +213,9 @@ const appBarJS = `(function(){
      instead (a) track React Router navigations for lastUrl persistence and
      (b) respond to SSO token requests from the shell.
      Alert polling still runs so the shell badge cache stays fresh.            */
-  if(window!==window.top){
+  var _inFrame=false;
+  try{_inFrame=(window!==window.top);}catch(e){_inFrame=true;}
+  if(_inFrame){
     /* 1. URL tracker: report every SPA navigation to the shell so it can call
           __go_saveAppLastURL.  Skip /auth/* to avoid persisting SSO callbacks. */
     var _rep=function(){
@@ -616,9 +649,15 @@ const appBarJS = `(function(){
 //   - Tenant name badge shown for every alert in the panel (not just cross-tenant)
 const tabBarJS = `(function(){
   if(!/^https?:/.test(location.protocol))return;
+  /* Shell page is always served from 127.0.0.1 — skip before DOM is parsed. */
+  if(location.hostname==='127.0.0.1'||location.hostname==='localhost')return;
   if(document.documentElement&&document.documentElement.dataset.oblitoolsShell)return;
   if(window.__ov_tabs_injected)return;
   if(/^\/(login|enrollment|forgot-password|reset-password|reset)/.test(location.pathname))return;
+  /* Inside an ObliTools iframe: skip entirely.  The shell handles app switching;
+     tenant auto-cycle / pnav navigation inside an iframe would break state. */
+  var _inFrame=false;try{_inFrame=window!==window.top;}catch(e){_inFrame=true;}
+  if(_inFrame)return;
 
   /* Post-switch navigation -- consume before tab bar init */
   var _pnav=localStorage.getItem('__ov_pnav');
@@ -1257,20 +1296,30 @@ func appColorFromURL(rawURL string) string {
 }
 
 // navigateShell writes the shell HTML to a temp file and navigates the webview to
-// that file:// URL.  Using w.Navigate("file:///...") instead of w.SetHtml() is
-// necessary because WebView2's NavigateToString does not reliably execute inline
-// <script> tags — the CSS loads but JavaScript silently never fires.
-// A fixed filename (oblitools_shell.html) is used so the file is simply overwritten
-// on every shell rebuild; no cleanup is needed.
+// navigateShell loads the shell HTML via the localhost HTTP server so that
+// WebView2 executes inline <script> tags normally.
+//
+// WebView2 silently blocks script execution on about:, data:, and file:// URLs
+// in many configurations (CSS loads, JS never fires).  Navigating to an
+// http://127.0.0.1 URL is the only approach that works reliably across all
+// WebView2 versions and Windows security configurations.
+//
+// The ?v=N query parameter changes on every call so that navigating to the same
+// logical URL triggers a fresh HTTP request even if the webview would otherwise
+// treat it as a same-page navigation.
 func navigateShell(w webview.WebView, html string) {
-	path := filepath.Join(os.TempDir(), "oblitools_shell.html")
-	if err := os.WriteFile(path, []byte(html), 0o600); err != nil {
-		// Last-resort fallback — may not execute scripts on all WebView2 versions.
+	shellMu.Lock()
+	shellHTMLStore = html
+	shellNavSeq++
+	navSeq := shellNavSeq
+	shellMu.Unlock()
+
+	if shellServeURL != "" {
+		w.Navigate(fmt.Sprintf("%s?v=%d", shellServeURL, navSeq))
+	} else {
+		// Fallback when the localhost server failed to start (should not happen).
 		w.SetHtml(html)
-		return
 	}
-	// file:///C:/Users/.../AppData/Local/Temp/oblitools_shell.html
-	w.Navigate("file:///" + filepath.ToSlash(path))
 }
 
 // generateShellHTML builds the persistent multi-app shell page that is loaded via
@@ -1279,18 +1328,16 @@ func navigateShell(w webview.WebView, html string) {
 // no SSO round-trip — preserving React state and keeping all Socket.io connections
 // alive for background notification processing.
 //
-// Because w.SetHtml() loads on a non-http protocol (about:srcdoc), the existing
-// guard in appBarJS/overlayJS/tabBarJS skips injection in the shell itself.
-// Those scripts do run inside each app iframe (https:// protocol), where the
-// iframe block added to appBarJS handles URL tracking and SSO token responses.
-func generateShellHTML(cfg Config, ver string) string {
-	appsJSON, _ := json.Marshal(cfg.Apps)
-	activeURL := cfg.URL
-
-	return fmt.Sprintf(`<!DOCTYPE html><html data-oblitools-shell="1"><head><meta charset="utf-8">
+// generateShellHTML builds the persistent multi-app shell page.
+// It contains ONLY CSS and static DOM — no inline <script>.
+// All shell logic lives in shellInitJS (a w.Init() script) so it executes
+// via the host-injected mechanism and bypasses any Content Security Policy
+// that would otherwise block inline scripts on this page.
+func generateShellHTML(_ Config, _ string) string {
+	return `<!DOCTYPE html><html data-oblitools-shell="1"><head><meta charset="utf-8">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%%;height:100%%;overflow:hidden;background:#060610}
+html,body{width:100%;height:100%;overflow:hidden;background:#060610}
 #ot-bar{
   position:fixed;top:0;left:0;right:0;height:40px;z-index:9999;
   background:#060610;border-bottom:1px solid rgba(255,255,255,.07);
@@ -1319,16 +1366,14 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610}
 .ot-bdg.visible{display:inline-flex}
 #ot-frames{position:fixed;top:40px;left:0;right:0;bottom:0}
 #ot-frames iframe{
-  position:absolute;inset:0;width:100%%;height:100%%;
+  position:absolute;inset:0;width:100%;height:100%;
   border:none;display:none;background:#060610}
 #ot-frames iframe.active{display:block}
-/* ── Manage button (⚙) in right corner of shell bar ─── */
 #ot-manage{
   flex-shrink:0;width:36px;height:40px;border:none;background:none;cursor:pointer;
   color:#4a4a5a;font-size:16px;display:flex;align-items:center;justify-content:center;
   transition:color .15s}
 #ot-manage:hover{color:#9090a4}
-/* ── Manage overlay ──────────────────────────────────── */
 #ot-overlay{
   display:none;position:fixed;inset:0;z-index:10000;
   background:rgba(0,0,0,.55);align-items:flex-start;justify-content:flex-end}
@@ -1358,7 +1403,6 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610}
 </style>
 </head><body>
 <div id="ot-bar"><div id="ot-tabs"></div><button id="ot-manage" title="Manage apps">&#x2699;</button></div>
-<!-- Manage overlay -->
 <div id="ot-overlay"><div id="ot-panel">
   <h3>Apps</h3>
   <div id="ot-app-list"></div>
@@ -1368,18 +1412,29 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610}
   </div>
 </div></div>
 <div id="ot-frames"></div>
-<script>
-/* Catch-all: surface any JS error visibly in the tab bar. */
-window.onerror=function(msg,src,line){
-  var bar=document.getElementById('ot-tabs');
-  if(bar)bar.innerHTML='<span style="color:#ef4444;font-size:11px;padding:0 12px;line-height:40px">Shell error: '+msg+' ('+(line||'?')+')</span>';
-};
-function __ot_init(){
-  var APPS=%s;
-  var ACTIVE_URL=%q;
-  var loaded=[];       // boolean per index: has src been set?
-  var activeIdx=0;
-  var pendingSso={};   // requestId → {resolve,reject}
+</body></html>`
+}
+
+// shellInitJS is injected on every page via w.Init() and therefore executes as a
+// host-trusted script, bypassing any Content Security Policy restrictions that
+// would otherwise block inline <script> tags on the shell page.
+//
+// Guard: only runs when hostname is 127.0.0.1 (the localhost shell server).
+// All shell state (apps list, active URL) is fetched at runtime from Go via
+// __go_getShellConfig() so this string needs no fmt.Sprintf substitution and
+// can be registered once at startup.
+const shellInitJS = `(function(){
+  if(location.hostname!=='127.0.0.1'&&location.hostname!=='localhost')return;
+
+  /* Surface JS errors in the tab bar for easier debugging. */
+  window.onerror=function(msg,src,line){
+    var bar=document.getElementById('ot-tabs');
+    if(bar)bar.innerHTML='<span style="color:#ef4444;font-size:11px;padding:0 12px;line-height:40px">Shell error: '+msg+' ('+(line||'?')+')</span>';
+  };
+
+  function __ot_run(APPS,ACTIVE_URL){
+    var loaded=[];   // true once fr.src has been set for this index
+    var activeIdx=0;
 
   /* ── Determine initial active app ──────────────────────────────────── */
   for(var i=0;i<APPS.length;i++){
@@ -1414,7 +1469,7 @@ function __ot_init(){
     tabs.appendChild(btn);
     loaded.push(false);
 
-    /* iframe */
+    /* iframe — src is NOT set yet; loadApp() sets it on first visit */
     var fr=document.createElement('iframe');
     fr.id='ot-f-'+i;
     fr.setAttribute('allow','clipboard-read;clipboard-write;notifications');
@@ -1422,7 +1477,7 @@ function __ot_init(){
     frames.appendChild(fr);
   });
 
-  /* ── Show/hide helper ───────────────────────────────────────────────── */
+  /* ── Show/hide helper (pure CSS toggle — never re-navigates) ─────────── */
   function setActive(idx){
     document.querySelectorAll('.ot-tab').forEach(function(b,j){
       var app=APPS[j];var col=app?app.color||'#6366f1':'#6366f1';
@@ -1434,92 +1489,46 @@ function __ot_init(){
     });
   }
 
-  /* ── Request SSO token from source iframe ───────────────────────────── */
-  function requestSso(srcIdx){
-    return new Promise(function(resolve,reject){
-      var id=Math.random().toString(36).slice(2);
-      pendingSso[id]={resolve:resolve,reject:reject};
-      var fr=document.getElementById('ot-f-'+srcIdx);
-      if(!fr||!fr.contentWindow){reject(new Error('no frame'));return;}
-      var origin='*';
-      try{origin=new URL(APPS[srcIdx].url).origin;}catch(e){}
-      fr.contentWindow.postMessage({type:'ot_request_sso_token',id:id},origin);
-      setTimeout(function(){
-        if(pendingSso[id]){delete pendingSso[id];reject(new Error('timeout'));}
-      },6000);
-    });
-  }
-
-  /* ── Navigate a frame (with SSO if possible) ────────────────────────── */
+  /* ── Load an app into its iframe (called at most once per index) ──────── */
+  /* Navigates directly to app.url — existing session cookies handle auth.   */
+  /* The iframe is NEVER re-navigated after the first load; state is always  */
+  /* preserved when switching tabs.                                           */
   function loadApp(idx){
     if(loaded[idx])return;
     loaded[idx]=true;
-    var app=APPS[idx];
-    var dest=app.lastUrl||'/';
-    if(!dest||/^\/auth\//.test(dest))dest='/';
-
-    /* Find first already-loaded frame to act as SSO source */
-    var srcIdx=-1;
-    for(var j=0;j<APPS.length;j++){if(loaded[j]&&j!==idx){srcIdx=j;break;}}
-
-    if(srcIdx>=0){
-      requestSso(srcIdx)
-        .then(function(tok){
-          var u=app.url+'/auth/foreign?token='+encodeURIComponent(tok)
-            +'&from=oblitools&source=oblitools'
-            +'&redirect='+encodeURIComponent(dest);
-          document.getElementById('ot-f-'+idx).src=u;
-        })
-        .catch(function(){
-          /* Fallback: direct navigation (relies on existing session cookie) */
-          document.getElementById('ot-f-'+idx).src=app.url+(dest!=='/'?dest:'');
-        });
-    }else{
-      /* First app ever — navigate directly; will use cookie or show login */
-      document.getElementById('ot-f-'+idx).src=app.url+(dest!=='/'?dest:'');
-    }
+    document.getElementById('ot-f-'+idx).src=APPS[idx].url;
   }
 
-  /* ── Switch to tab ──────────────────────────────────────────────────── */
+  /* ── Switch to tab (show/hide only — no reload, no SSO) ─────────────── */
   function switchTo(idx){
     if(idx===activeIdx&&loaded[idx])return;
-    var prev=activeIdx;
     activeIdx=idx;
     setActive(idx);
     if(typeof window.__go_switchApp==='function')
       window.__go_switchApp(APPS[idx].url).catch(function(){});
     if(!loaded[idx])loadApp(idx);
-    /* Re-sync the previous frame's lastUrl after it becomes background */
-    void prev;
   }
 
   /* ── Initial load ────────────────────────────────────────────────────── */
   loadApp(activeIdx);
 
-  /* Background-load remaining apps with a stagger so all sockets connect
-     (enables notifications from every app even when not visible).         */
-  var bgQueue=[];
-  for(var k=0;k<APPS.length;k++){if(k!==activeIdx)bgQueue.push(k);}
+  /* Background-load the other apps with a stagger so their Socket.io
+     connections establish and badge counts stay live even off-screen.      */
   var bgDelay=3000;
-  bgQueue.forEach(function(idx){
-    setTimeout(function(){loadApp(idx);},bgDelay);
-    bgDelay+=3000;
-  });
+  for(var k=0;k<APPS.length;k++){
+    if(k!==activeIdx){
+      (function(idx){
+        setTimeout(function(){loadApp(idx);},bgDelay);
+      })(k);
+      bgDelay+=3000;
+    }
+  }
 
   /* ── Listen for messages from iframes ───────────────────────────────── */
   window.addEventListener('message',function(e){
     var d=e.data;if(!d||!d.type)return;
 
-    /* SSO token reply */
-    if(d.type==='ot_sso_token'){
-      var req=pendingSso[d.id];
-      if(req){
-        delete pendingSso[d.id];
-        if(d.token)req.resolve(d.token);else req.reject(new Error('no token'));
-      }
-    }
-
-    /* URL change from app iframe → persist lastUrl */
+    /* URL change from app iframe → persist lastUrl for next session */
     if(d.type==='ot_url_change'&&d.path){
       var origin=e.origin;
       for(var n=0;n<APPS.length;n++){
@@ -1597,17 +1606,28 @@ function __ot_init(){
   document.getElementById('ot-add-input').addEventListener('keydown',function(e){
     if(e.key==='Enter')document.getElementById('ot-add-btn').click();
   });
-}
-/* Run after DOM is ready (elements before this script are already parsed,
-   but using DOMContentLoaded guards against any webview timing quirks). */
-if(document.readyState==='loading'){
-  document.addEventListener('DOMContentLoaded',__ot_init,{once:true});
-}else{
-  __ot_init();
-}
-</script>
-</body></html>`, appsJSON, activeURL)
-}
+  } /* end __ot_run */
+
+  /* Fetch shell config from Go and run once the DOM is ready. */
+  function start(){
+    if(typeof window.__go_getShellConfig!=='function'){
+      setTimeout(start,30);return;
+    }
+    window.__go_getShellConfig().then(function(cfg){
+      var APPS=cfg.apps||[];
+      var ACTIVE_URL=cfg.activeUrl||'';
+      if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',function(){__ot_run(APPS,ACTIVE_URL);},{once:true});
+      }else{
+        __ot_run(APPS,ACTIVE_URL);
+      }
+    }).catch(function(e){
+      var bar=document.getElementById('ot-tabs');
+      if(bar)bar.innerHTML='<span style="color:#ef4444;font-size:11px;padding:0 12px;line-height:40px">Config error: '+e+'</span>';
+    });
+  }
+  start();
+})();`
 
 func main() {
 	cfg, _ := loadConfig()
@@ -1842,6 +1862,22 @@ func main() {
 		fmt.Println("[obliview] bind error:", err)
 	}
 
+	// __go_getShellConfig returns the apps list and active URL for the shell page.
+	// Called by shellInitJS (w.Init() script) on every shell page load so it can
+	// build the tab bar and iframes without needing data embedded in the HTML.
+	if err := w.Bind("__go_getShellConfig", func() interface{} {
+		return struct {
+			Apps      []AppEntry `json:"apps"`
+			ActiveURL string     `json:"activeUrl"`
+		}{Apps: cfg.Apps, ActiveURL: cfg.URL}
+	}); err != nil {
+		fmt.Println("[oblitools] bind error:", err)
+	}
+
+	// Inject the shell init script — runs only on the 127.0.0.1 shell page.
+	// Uses w.Init() so it executes as a host-trusted script, bypassing any
+	// Content Security Policy that would block inline <script> tags.
+	w.Init(shellInitJS)
 	// Inject the overlay script on every page load.
 	w.Init(overlayJS)
 	// Inject the app-level tab bar (shows tabs for Obliview/Obliance/Oblimap/Obliguard).
@@ -1857,6 +1893,32 @@ func main() {
 		"window.__obliview_app_version=window.__obliguard_app_version=window.__oblimap_app_version=window.__obliance_app_version=%q;",
 		appVersion,
 	))
+
+	// ── Start localhost shell server ─────────────────────────────────────────
+	// The shell HTML page is served over http:// so that WebView2 executes its
+	// inline <script> tags.  WebView2 silently drops scripts on about:, data:
+	// and file:// URLs in many Windows configurations; http://127.0.0.1 works
+	// in every environment.
+	//
+	// The Init scripts (overlayJS / appBarJS / tabBarJS) all guard with:
+	//   if(document.documentElement.dataset.oblitoolsShell) return;
+	// so they skip injection on the shell page even though http:// passes the
+	// protocol check.
+	{
+		mux := http.NewServeMux()
+		mux.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
+			shellMu.Lock()
+			content := shellHTMLStore
+			shellMu.Unlock()
+			rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+			rw.Header().Set("Cache-Control", "no-store")
+			fmt.Fprint(rw, content)
+		})
+		if ln, err := net.Listen("tcp", "127.0.0.1:0"); err == nil {
+			shellServeURL = fmt.Sprintf("http://127.0.0.1:%d/", ln.Addr().(*net.TCPAddr).Port)
+			go func() { _ = http.Serve(ln, mux) }()
+		}
+	}
 
 	if len(cfg.Apps) == 0 {
 		// First run — no apps configured yet, show the setup page.

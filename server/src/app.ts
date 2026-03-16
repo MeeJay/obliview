@@ -30,8 +30,19 @@ export function createApp() {
   // Required for accurate rate limiting when behind Nginx / Nginx Proxy Manager.
   app.set('trust proxy', 1);
 
-  // Security headers
-  app.use(helmet());
+  // Security headers.
+  // frameguard / frame-ancestors are disabled so the Obli.tools native desktop app
+  // can embed this app in an iframe for its persistent multi-app shell.
+  app.use(
+    helmet({
+      frameguard: false, // removes X-Frame-Options header
+      contentSecurityPolicy: {
+        directives: {
+          frameAncestors: null, // removes frame-ancestors; allows native shell to embed us
+        },
+      },
+    }),
+  );
   app.use(
     cors({
       origin: config.clientOrigin,
@@ -68,7 +79,14 @@ export function createApp() {
         secure: config.forceHttps,
         httpOnly: true,
         maxAge: config.sessionMaxAge,
-        sameSite: 'lax',
+        // SameSite=None (+ Secure) allows the session cookie to be sent when this
+        // app is embedded in an iframe by the Obli.tools native desktop shell
+        // (top-level origin 127.0.0.1 ≠ app origin → cross-site context for
+        // SameSite=Lax, which would block the cookie on every authenticated request).
+        // We activate 'none' whenever HTTPS is in use (FORCE_HTTPS=true or
+        // NODE_ENV=production, both of which imply a secure TLS connection).
+        // Plain-HTTP dev deployments keep 'lax' since SameSite=None requires Secure.
+        sameSite: config.forceHttps || config.nodeEnv === 'production' ? 'none' : 'lax',
       },
     }),
   );
