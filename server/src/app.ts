@@ -92,6 +92,14 @@ export function createApp() {
         httpOnly: true,
         maxAge: config.sessionMaxAge,
         sameSite: config.forceHttps || config.nodeEnv === 'production' ? 'none' : 'lax',
+        // CHIPS (Cookies Having Independent Partitioned State) — required for
+        // Chrome/Edge 115+ to allow cookies in cross-site iframe contexts.
+        // Without Partitioned, Chrome blocks unpartitioned third-party cookies
+        // even when SameSite=None; Secure is set.
+        // In first-party contexts the partition key equals the cookie's site, so
+        // existing sessions and direct-browser users are NOT affected.
+        // Requires Secure (already set above) — only enable in HTTPS deployments.
+        partitioned: config.forceHttps || config.nodeEnv === 'production',
       },
     }),
   );
