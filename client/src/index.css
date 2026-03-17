@@ -60,8 +60,8 @@
   --c-text-secondary:        152 138 118;
   --c-text-muted:            106 94 78;
 
-  --c-status-up:             0 160 255;
-  --c-status-up-bg:          0 20 42;
+  --c-status-up:             56 189 248;
+  --c-status-up-bg:          4 20 32;
   --c-status-down:           255 56 96;
   --c-status-down-bg:        42 0 16;
   --c-status-pending:        255 170 0;
@@ -120,7 +120,7 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Neon UI — glow effects
+   Neon UI — borders and accent colours only (no blur / glow / shadow)
    All selectors are flat (not nested) for PostCSS compatibility.
    ───────────────────────────────────────────────────────────────────────────── */
 
@@ -145,49 +145,27 @@
   pointer-events: none;
 }
 
-/* ── Active nav item — cyan flash ───────────────────────────────────────────── */
+/* ── Active nav item ────────────────────────────────────────────────────────── */
 [data-theme="neon"] .bg-bg-active {
   background-color: rgb(0 200 255 / 0.1) !important;
   box-shadow: inset 3px 0 0 rgb(0 200 255 / 1);
 }
 [data-theme="neon"] .bg-bg-active .text-text-primary {
   color: rgb(0 200 255 / 1) !important;
-  text-shadow: 0 0 10px rgb(0 200 255 / 0.65);
 }
 [data-theme="neon"] .bg-bg-active svg {
   color: rgb(0 200 255 / 1) !important;
-  filter: drop-shadow(0 0 4px rgb(0 200 255 / 0.7));
 }
 
-/* ── Accent & primary text glow ─────────────────────────────────────────────── */
-[data-theme="neon"] .text-accent {
-  text-shadow: 0 0 12px rgb(var(--c-accent) / 0.5);
-}
-[data-theme="neon"] .text-primary {
-  text-shadow: 0 0 12px rgb(var(--c-accent) / 0.5);
-}
-
-/* ── Status text glows ──────────────────────────────────────────────────────── */
-[data-theme="neon"] .text-status-up {
-  text-shadow: 0 0 10px rgb(var(--c-status-up) / 0.6);
-}
-[data-theme="neon"] .text-status-down {
-  text-shadow: 0 0 10px rgb(var(--c-status-down) / 0.5);
-}
-
-/* ── Card status borders + glows — driven by [data-status] attribute ────────── */
-/* "up" = clean blue border only — no outer glow (most cards are up, avoid fog effect) */
+/* ── Card status borders — driven by [data-status] attribute ────────────────── */
 [data-theme="neon"] [data-status="up"] {
-  border-color: rgb(0 160 255 / 0.45) !important;
+  border-color: rgb(56 189 248 / 0.45) !important;
 }
-/* Problem states: tight neon glow so they stand out clearly */
 [data-theme="neon"] [data-status="down"] {
   border-color: rgb(255 56 96 / 0.75) !important;
-  box-shadow: 0 0 8px rgb(255 56 96 / 0.4);
 }
 [data-theme="neon"] [data-status="alert"] {
   border-color: rgb(255 120 50 / 0.75) !important;
-  box-shadow: 0 0 8px rgb(255 120 50 / 0.35);
 }
 [data-theme="neon"] [data-status="pending"] {
   border-color: rgb(255 170 0 / 0.55) !important;
@@ -197,56 +175,12 @@
 }
 [data-theme="neon"] [data-status="ssl_expired"] {
   border-color: rgb(176 106 255 / 0.6) !important;
-  box-shadow: 0 0 7px rgb(176 106 255 / 0.3);
 }
 [data-theme="neon"] [data-status="maintenance"] {
   border-color: rgb(0 200 255 / 0.5) !important;
 }
 [data-theme="neon"] [data-status="info"] {
   border-color: rgb(88 166 255 / 0.6) !important;
-  box-shadow: 0 0 8px rgb(88 166 255 / 0.25);
-}
-
-/* ── Left-border status glow on monitor cards (list view) ───────────────────── */
-/* border-l-status-up: no outer glow — the green left border itself is sufficient */
-[data-theme="neon"] .border-l-status-down {
-  box-shadow: -4px 0 14px rgb(var(--c-status-down) / 0.55);
-}
-[data-theme="neon"] .border-l-status-pending {
-  box-shadow: -4px 0 14px rgb(var(--c-status-pending) / 0.5);
-}
-[data-theme="neon"] .border-l-orange-500 {
-  box-shadow: -4px 0 14px rgb(255 120 50 / 0.5);
-}
-[data-theme="neon"] .border-l-status-ssl-warning {
-  box-shadow: -4px 0 14px rgb(var(--c-status-ssl-warning) / 0.5);
-}
-[data-theme="neon"] .border-l-status-ssl-expired {
-  box-shadow: -4px 0 14px rgb(var(--c-status-ssl-expired) / 0.5);
-}
-
-/* ── Accent border / ring glow ──────────────────────────────────────────────── */
-[data-theme="neon"] .border-accent {
-  box-shadow: 0 0 0 1px rgb(var(--c-accent) / 0.4), 0 0 12px rgb(var(--c-accent) / 0.2);
-}
-[data-theme="neon"] .ring-accent {
-  box-shadow: 0 0 0 1px rgb(var(--c-accent) / 0.4), 0 0 12px rgb(var(--c-accent) / 0.2);
-}
-
-/* ── Primary button glow ────────────────────────────────────────────────────── */
-[data-theme="neon"] button.bg-accent {
-  box-shadow: 0 0 14px rgb(var(--c-accent) / 0.4), 0 2px 8px rgb(0 0 0 / 0.4);
-}
-[data-theme="neon"] a.bg-accent {
-  box-shadow: 0 0 14px rgb(var(--c-accent) / 0.4), 0 2px 8px rgb(0 0 0 / 0.4);
-}
-
-/* ── Status badge / dot glow ─────────────────────────────────────────────────── */
-[data-theme="neon"] .bg-status-up {
-  box-shadow: 0 0 8px rgb(var(--c-status-up) / 0.65);
-}
-[data-theme="neon"] .bg-status-down {
-  box-shadow: 0 0 8px rgb(var(--c-status-down) / 0.6);
 }
 
 /* ── Card secondary bg border ───────────────────────────────────────────────── */

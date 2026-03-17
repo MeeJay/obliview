@@ -110,6 +110,10 @@ const overlayJS = `(function(){
   window.__obliview_is_native_app=window.__obliance_is_native_app=
     window.__oblimap_is_native_app=window.__obliguard_is_native_app=true;
 
+  /* Remove WebView2 focus ring — without this, clicking the webview shows a
+     blue outline on <html>/<body> which bleeds into the page content area. */
+  (function(){var s=document.createElement('style');s.textContent='html:focus,body:focus,html:focus-visible,body:focus-visible{outline:none!important}';(document.head||document.documentElement).appendChild(s);})();
+
   /* ── Notification sounds ──────────────────────────────────────────────── */
   function tone(f,t,d,v){
     try{

@@ -194,7 +194,7 @@ export function MonitorEditPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="p-6">
       <Link
         to={isNew ? '/' : `/monitor/${id}`}
         className="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary mb-4"
