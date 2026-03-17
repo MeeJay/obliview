@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { LiveAlertData } from '@obliview/shared';
+import apiClient from '../api/client';
 
 export type AlertSeverity = 'down' | 'up' | 'warning' | 'info';
 
@@ -57,14 +58,16 @@ function toLocalAlert(data: LiveAlertData): LiveAlert {
   return { ...data, toastDismissed: false };
 }
 
+// Use apiClient (Axios) so the X-Auth-Token header is automatically injected
+// when running inside ObliTools' cross-site iframe (where cookies are blocked).
 async function apiPatch(path: string): Promise<void> {
-  await fetch(path, { method: 'PATCH', credentials: 'include' });
+  await apiClient.patch(path);
 }
 async function apiPost(path: string): Promise<void> {
-  await fetch(path, { method: 'POST', credentials: 'include' });
+  await apiClient.post(path);
 }
 async function apiDelete(path: string): Promise<void> {
-  await fetch(path, { method: 'DELETE', credentials: 'include' });
+  await apiClient.delete(path);
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -88,10 +91,8 @@ export const useLiveAlertsStore = create<LiveAlertsState>()(
       // ── Server sync ────────────────────────────────────────────────────────
       fetchAlerts: async () => {
         try {
-          const res = await fetch('/api/live-alerts/all', { credentials: 'include' });
-          if (!res.ok) return;
-          const data = (await res.json()) as { alerts: LiveAlertData[] };
-          set({ alerts: data.alerts.map(toLocalAlert) });
+          const res = await apiClient.get<{ alerts: LiveAlertData[] }>('/live-alerts/all');
+          set({ alerts: (res.data.alerts ?? []).map(toLocalAlert) });
         } catch {
           // Ignore network errors (user may not be logged in yet)
         }

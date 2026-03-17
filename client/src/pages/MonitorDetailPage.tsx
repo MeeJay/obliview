@@ -20,6 +20,7 @@ import { RemediationBindingsPanel } from '@/components/remediation/RemediationBi
 import { MaintenanceWindowList } from '@/components/maintenance/MaintenanceWindowList';
 import type { Heartbeat, NotificationChannel } from '@obliview/shared';
 import toast from 'react-hot-toast';
+import apiClient from '@/api/client';
 
 export function MonitorDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -60,11 +61,11 @@ export function MonitorDetailPage() {
   useEffect(() => {
     if (!isAdmin()) return;
     Promise.all([
-      fetch('/api/monitors').then((r) => r.json()),
-      fetch('/api/notifications/channels').then((r) => r.json()),
+      apiClient.get<{ success: boolean; data: { id: number; name: string }[] }>('/monitors'),
+      apiClient.get<{ success: boolean; data: NotificationChannel[] }>('/notifications/channels'),
     ]).then(([mon, ch]) => {
-      if (mon.success) setMaintenanceScopeOptions(mon.data.map((m: { id: number; name: string }) => ({ id: m.id, name: m.name, type: 'monitor' as const })));
-      if (ch.success) setMaintenanceChannels(ch.data);
+      if (mon.data.success) setMaintenanceScopeOptions(mon.data.data.map((m) => ({ id: m.id, name: m.name, type: 'monitor' as const })));
+      if (ch.data.success) setMaintenanceChannels(ch.data.data);
     }).catch(() => {});
   }, [isAdmin]);
 

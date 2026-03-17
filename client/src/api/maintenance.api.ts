@@ -2,77 +2,58 @@ import type {
   MaintenanceWindow,
   CreateMaintenanceWindowRequest,
   UpdateMaintenanceWindowRequest,
+  ApiResponse,
 } from '@obliview/shared';
+import apiClient from './client';
 
-const BASE = '/api/maintenance';
-
-async function req<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'Request failed');
-  return json.data as T;
-}
+const BASE = '/maintenance';
 
 export const maintenanceApi = {
   /** List all windows, optionally filtered by scope type/id */
-  list(params?: { scopeType?: string; scopeId?: number }): Promise<MaintenanceWindow[]> {
-    const qs = new URLSearchParams();
-    if (params?.scopeType) qs.set('scopeType', params.scopeType);
-    if (params?.scopeId !== undefined) qs.set('scopeId', String(params.scopeId));
-    const query = qs.toString() ? `?${qs}` : '';
-    return req<MaintenanceWindow[]>(`${BASE}${query}`);
+  async list(params?: { scopeType?: string; scopeId?: number }): Promise<MaintenanceWindow[]> {
+    const res = await apiClient.get<ApiResponse<MaintenanceWindow[]>>(BASE, { params });
+    return res.data.data ?? [];
   },
 
-  getById(id: number): Promise<MaintenanceWindow> {
-    return req<MaintenanceWindow>(`${BASE}/${id}`);
+  async getById(id: number): Promise<MaintenanceWindow> {
+    const res = await apiClient.get<ApiResponse<MaintenanceWindow>>(`${BASE}/${id}`);
+    return res.data.data!;
   },
 
-  create(data: CreateMaintenanceWindowRequest): Promise<MaintenanceWindow> {
-    return req<MaintenanceWindow>(BASE, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  async create(data: CreateMaintenanceWindowRequest): Promise<MaintenanceWindow> {
+    const res = await apiClient.post<ApiResponse<MaintenanceWindow>>(BASE, data);
+    return res.data.data!;
   },
 
-  update(id: number, data: UpdateMaintenanceWindowRequest): Promise<MaintenanceWindow> {
-    return req<MaintenanceWindow>(`${BASE}/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  async update(id: number, data: UpdateMaintenanceWindowRequest): Promise<MaintenanceWindow> {
+    const res = await apiClient.put<ApiResponse<MaintenanceWindow>>(`${BASE}/${id}`, data);
+    return res.data.data!;
   },
 
-  delete(id: number): Promise<void> {
-    return req<void>(`${BASE}/${id}`, { method: 'DELETE' });
+  async delete(id: number): Promise<void> {
+    await apiClient.delete(`${BASE}/${id}`);
   },
 
   /**
    * Get all effective windows (local + inherited) for a scope entity.
    * Each window includes source, isDisabledHere, canDisable, canEnable, etc.
    */
-  getEffective(scopeType: 'monitor' | 'agent' | 'group', scopeId: number): Promise<MaintenanceWindow[]> {
-    return req<MaintenanceWindow[]>(`${BASE}/effective/${scopeType}/${scopeId}`);
+  async getEffective(scopeType: 'monitor' | 'agent' | 'group', scopeId: number): Promise<MaintenanceWindow[]> {
+    const res = await apiClient.get<ApiResponse<MaintenanceWindow[]>>(`${BASE}/effective/${scopeType}/${scopeId}`);
+    return res.data.data ?? [];
   },
 
   /**
    * Disable an inherited window at the given scope.
    */
-  disableForScope(windowId: number, scopeType: 'group' | 'monitor' | 'agent', scopeId: number): Promise<void> {
-    return req<void>(`${BASE}/${windowId}/disable`, {
-      method: 'POST',
-      body: JSON.stringify({ scopeType, scopeId }),
-    });
+  async disableForScope(windowId: number, scopeType: 'group' | 'monitor' | 'agent', scopeId: number): Promise<void> {
+    await apiClient.post(`${BASE}/${windowId}/disable`, { scopeType, scopeId });
   },
 
   /**
    * Re-enable a previously disabled inherited window at the given scope.
    */
-  enableForScope(windowId: number, scopeType: 'group' | 'monitor' | 'agent', scopeId: number): Promise<void> {
-    return req<void>(`${BASE}/${windowId}/disable`, {
-      method: 'DELETE',
-      body: JSON.stringify({ scopeType, scopeId }),
-    });
+  async enableForScope(windowId: number, scopeType: 'group' | 'monitor' | 'agent', scopeId: number): Promise<void> {
+    await apiClient.delete(`${BASE}/${windowId}/disable`, { data: { scopeType, scopeId } });
   },
 };

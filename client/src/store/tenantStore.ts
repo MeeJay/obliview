@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { TenantWithRole } from '@obliview/shared';
+import type { TenantWithRole, ApiResponse } from '@obliview/shared';
 import { useGroupStore } from './groupStore';
 import { useAuthStore } from './authStore';
+import apiClient from '../api/client';
 
 interface TenantState {
   currentTenantId: number | null;
@@ -19,10 +20,8 @@ export const useTenantStore = create<TenantState>((set) => ({
   fetchTenants: async () => {
     try {
       set({ isLoading: true });
-      const res = await fetch('/api/tenants', { credentials: 'include' });
-      if (!res.ok) { set({ isLoading: false }); return; }
-      const data = await res.json();
-      set({ tenants: data.data ?? [], isLoading: false });
+      const res = await apiClient.get<ApiResponse<TenantWithRole[]>>('/tenants');
+      set({ tenants: res.data.data ?? [], isLoading: false });
     } catch {
       set({ isLoading: false });
     }
@@ -30,13 +29,7 @@ export const useTenantStore = create<TenantState>((set) => ({
 
   setCurrentTenant: async (tenantId: number) => {
     try {
-      const res = await fetch('/api/tenant/switch', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId }),
-      });
-      if (!res.ok) return;
+      await apiClient.post('/tenant/switch', { tenantId });
       set({ currentTenantId: tenantId });
       // Reload group collapsed state for the new tenant context
       const userId = useAuthStore.getState().user?.id ?? null;

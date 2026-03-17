@@ -4,6 +4,7 @@ import type { MaintenanceScopeType, NotificationChannel } from '@obliview/shared
 import { MaintenanceWindowList } from '@/components/maintenance/MaintenanceWindowList';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
+import apiClient from '@/api/client';
 
 interface ScopeOption {
   id: number;
@@ -21,31 +22,31 @@ export function AdminMaintenancePage() {
     async function load() {
       try {
         const [monitorsRes, agentsRes, groupsRes, channelsRes] = await Promise.all([
-          fetch('/api/monitors').then((r) => r.json()),
-          fetch('/api/agent/devices').then((r) => r.json()),
-          fetch('/api/groups').then((r) => r.json()),
-          fetch('/api/notifications/channels').then((r) => r.json()),
+          apiClient.get<{ success: boolean; data: { id: number; name: string }[] }>('/monitors'),
+          apiClient.get<{ success: boolean; data: { id: number; name: string; hostname: string }[] }>('/agent/devices'),
+          apiClient.get<{ success: boolean; data: Array<{ id: number; name: string; children?: unknown[] }> }>('/groups'),
+          apiClient.get<{ success: boolean; data: NotificationChannel[] }>('/notifications/channels'),
         ]);
 
         const scopes: ScopeOption[] = [];
-        if (monitorsRes.success) {
-          for (const m of monitorsRes.data) scopes.push({ id: m.id, name: m.name, type: 'monitor' });
+        if (monitorsRes.data.success) {
+          for (const m of monitorsRes.data.data) scopes.push({ id: m.id, name: m.name, type: 'monitor' });
         }
-        if (agentsRes.success) {
-          for (const d of agentsRes.data) scopes.push({ id: d.id, name: d.name ?? d.hostname, type: 'agent' });
+        if (agentsRes.data.success) {
+          for (const d of agentsRes.data.data) scopes.push({ id: d.id, name: d.name ?? d.hostname, type: 'agent' });
         }
-        if (groupsRes.success) {
+        if (groupsRes.data.success) {
           const flatGroups = (function flatten(nodes: Array<{ id: number; name: string; children?: unknown[] }>): ScopeOption[] {
             return nodes.flatMap((g) => [
               { id: g.id, name: g.name, type: 'group' as MaintenanceScopeType },
               ...flatten((g.children ?? []) as Array<{ id: number; name: string; children?: unknown[] }>),
             ]);
-          })(groupsRes.data ?? []);
+          })(groupsRes.data.data ?? []);
           scopes.push(...flatGroups);
         }
         setScopeOptions(scopes);
 
-        if (channelsRes.success) setChannels(channelsRes.data);
+        if (channelsRes.data.success) setChannels(channelsRes.data.data);
       } catch {
         toast.error(t('maintenance.failedLoad'));
       } finally {

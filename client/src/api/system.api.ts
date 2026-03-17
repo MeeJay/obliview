@@ -22,10 +22,11 @@ export interface SystemInfo {
   };
 }
 
+import apiClient from './client';
+
 export const systemApi = {
   async getInfo(): Promise<SystemInfo> {
-    const res = await fetch('/api/system', { credentials: 'include' });
-    if (!res.ok) throw new Error('Failed to fetch system info');
-    return res.json() as Promise<SystemInfo>;
+    const res = await apiClient.get<SystemInfo>('/system');
+    return res.data;
   },
 };

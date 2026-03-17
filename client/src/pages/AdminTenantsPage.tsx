@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Building2, Plus, Pencil, Trash2, Users, X, Check } from 'lucide-react';
 import type { Tenant } from '@obliview/shared';
 import { Button } from '@/components/common/Button';
+import apiClient from '@/api/client';
 
 interface TenantMember {
   id: number;
@@ -96,16 +97,14 @@ function MembersPanel({ tenantId, onClose }: { tenantId: number; onClose: () => 
   const [addingId, setAddingId] = useState<number | ''>('');
 
   const fetchMembers = async () => {
-    const res = await fetch(`/api/tenants/${tenantId}/members`, { credentials: 'include' });
-    const d = await res.json();
-    setMembers(d.data ?? []);
+    const res = await apiClient.get<{ data: TenantMember[] }>(`/tenants/${tenantId}/members`);
+    setMembers(res.data.data ?? []);
     setLoading(false);
   };
 
   const fetchUsers = async () => {
-    const res = await fetch('/api/users', { credentials: 'include' });
-    const d = await res.json();
-    setAllUsers(d.data ?? []);
+    const res = await apiClient.get<{ data: { id: number; username: string }[] }>('/users');
+    setAllUsers(res.data.data ?? []);
   };
 
   useEffect(() => {
@@ -115,33 +114,20 @@ function MembersPanel({ tenantId, onClose }: { tenantId: number; onClose: () => 
 
   const addMember = async () => {
     if (!addingId) return;
-    await fetch(`/api/tenants/${tenantId}/members`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: addingId, role: 'member' }),
-    });
+    await apiClient.post(`/tenants/${tenantId}/members`, { userId: addingId, role: 'member' });
     setAddingId('');
     fetchMembers();
   };
 
   const toggleRole = async (userId: number, currentRole: string) => {
     const newRole = currentRole === 'admin' ? 'member' : 'admin';
-    await fetch(`/api/tenants/${tenantId}/members/${userId}`, {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: newRole }),
-    });
+    await apiClient.put(`/tenants/${tenantId}/members/${userId}`, { role: newRole });
     fetchMembers();
   };
 
   const removeMember = async (userId: number) => {
     if (!confirm(t('common.confirmDelete'))) return;
-    await fetch(`/api/tenants/${tenantId}/members/${userId}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    });
+    await apiClient.delete(`/tenants/${tenantId}/members/${userId}`);
     fetchMembers();
   };
 
@@ -233,9 +219,8 @@ export function AdminTenantsPage() {
   const fetchTenants = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/tenants', { credentials: 'include' });
-      const d = await res.json();
-      setTenants(d.data ?? []);
+      const res = await apiClient.get<{ data: TenantWithMemberCount[] }>('/tenants');
+      setTenants(res.data.data ?? []);
     } finally {
       setLoading(false);
     }
@@ -244,38 +229,20 @@ export function AdminTenantsPage() {
   useEffect(() => { fetchTenants(); }, []);
 
   const handleCreate = async (name: string, slug: string) => {
-    const res = await fetch('/api/tenants', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, slug }),
-    });
-    if (!res.ok) {
-      const d = await res.json();
-      throw new Error(d.error ?? t('common.error'));
-    }
+    await apiClient.post('/tenants', { name, slug });
     setCreating(false);
     fetchTenants();
   };
 
   const handleUpdate = async (id: number, name: string, slug: string) => {
-    const res = await fetch(`/api/tenants/${id}`, {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, slug }),
-    });
-    if (!res.ok) {
-      const d = await res.json();
-      throw new Error(d.error ?? t('common.error'));
-    }
+    await apiClient.put(`/tenants/${id}`, { name, slug });
     setEditingId(null);
     fetchTenants();
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm(t('tenant.confirmDelete'))) return;
-    await fetch(`/api/tenants/${id}`, { method: 'DELETE', credentials: 'include' });
+    await apiClient.delete(`/tenants/${id}`);
     fetchTenants();
   };
 

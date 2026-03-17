@@ -16,6 +16,7 @@ import { agentApi } from '../api/agent.api';
 import { appConfigApi } from '../api/appConfig.api';
 import { ssoApi } from '../api/sso.api';
 import { monitorsApi } from '../api/monitors.api';
+import apiClient from '../api/client';
 import type { AgentMetrics, AgentPushSnapshot } from '../types/agent';
 import { getSocket } from '../socket/socketClient';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
@@ -2368,9 +2369,8 @@ export function AgentDetailPage() {
 
   // Fetch notification channels for the MaintenanceWindowList modal
   useEffect(() => {
-    fetch('/api/notifications/channels')
-      .then((r) => r.json())
-      .then((res) => { if (res.success) setMaintenanceChannels(res.data); })
+    apiClient.get<{ success: boolean; data: NotificationChannel[] }>('/notifications/channels')
+      .then((res) => { if (res.data.success) setMaintenanceChannels(res.data.data); })
       .catch(() => {});
   }, []);
 
