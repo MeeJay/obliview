@@ -76,6 +76,11 @@ var (
 
 	// shellView is the shell WebView; goroutines use it for Dispatch/Eval calls.
 	shellView webview.WebView
+
+	// managePanelOpen is true while the shell manage-apps overlay is visible.
+	// The position sync loop respects this flag to keep all app windows hidden
+	// so the overlay isn't occluded by the native app WebView windows.
+	managePanelOpen atomic.Bool
 )
 
 // ── overlayJS ─────────────────────────────────────────────────────────────────
@@ -147,7 +152,7 @@ const overlayJS = `(function(){
      /auth/* paths are excluded to avoid persisting SSO callback URLs.     */
   function reportURL(){
     var p=location.pathname+location.search+location.hash;
-    if(!p||/^\/auth\//.test(p))return;
+    if(!p||/^\/(auth\/|login|enrollment|forgot-password|reset-password|reset)/.test(location.pathname))return;
     if(typeof window.__go_saveAppLastURL==='function')
       window.__go_saveAppLastURL(location.origin,p).catch(function(){});
   }
@@ -194,6 +199,25 @@ const overlayJS = `(function(){
   try{
     window.location.replace=function(href){if(!maybeIntercept(href))_origReplace(href);};
     window.location.assign=function(href){if(!maybeIntercept(href))_origAssign(href);};
+  }catch(e){}
+  /* Also patch Location.prototype.href setter — catches window.location.href=url */
+  try{
+    var _lp=Location.prototype;
+    var _hd=Object.getOwnPropertyDescriptor(_lp,'href');
+    if(_hd&&_hd.set){
+      var _ohs=_hd.set;
+      Object.defineProperty(_lp,'href',{get:_hd.get,set:function(href){
+        if(!maybeIntercept(href))_ohs.call(this,href);
+      },configurable:true});
+    }
+  }catch(e){}
+  /* Intercept window.open for cross-origin navigation */
+  try{
+    var _origOpen=window.open.bind(window);
+    window.open=function(url,target,features){
+      if(url&&maybeIntercept(url))return null;
+      return _origOpen(url,target,features);
+    };
   }catch(e){}
 
   /* ── Manifest auto-discovery ──────────────────────────────────────────── */
@@ -1078,15 +1102,32 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
     },600);
   });
 
-  /* Manage overlay */
+  /* Manage overlay — app windows are native OS windows that sit on top of the
+     shell WebView, so we must hide them before opening the overlay and restore
+     them on close, otherwise the panel would be completely occluded. */
   var overlay=document.getElementById('ot-overlay');
+  var _panelOpen=false;
+  function openPanel(){
+    if(_panelOpen)return;
+    _panelOpen=true;
+    refreshList();
+    overlay.classList.add('open');
+    if(typeof window.__go_showManagePanel==='function')
+      window.__go_showManagePanel().catch(function(){});
+  }
+  function closePanel(){
+    if(!_panelOpen)return;
+    _panelOpen=false;
+    overlay.classList.remove('open');
+    if(typeof window.__go_hideManagePanel==='function')
+      window.__go_hideManagePanel().catch(function(){});
+  }
   document.getElementById('ot-manage').addEventListener('click',function(e){
     e.stopPropagation();
-    refreshList();
-    overlay.classList.toggle('open');
+    if(_panelOpen)closePanel();else openPanel();
   });
   overlay.addEventListener('click',function(e){
-    if(e.target===overlay)overlay.classList.remove('open');
+    if(e.target===overlay)closePanel();
   });
 
   function refreshList(){
@@ -1273,6 +1314,46 @@ func setupShellBindings(w webview.WebView, cfg *Config) {
 		}
 	}); err != nil {
 		fmt.Println("[oblitools] bind error __go_saveSize:", err)
+	}
+
+	// __go_showManagePanel: hide all app windows so the shell overlay is visible.
+	// Called by the gear button in the shell tab bar before opening the overlay.
+	if err := w.Bind("__go_showManagePanel", func() {
+		managePanelOpen.Store(true)
+		appViewsMu.Lock()
+		views := make([]*AppView, len(allAppViews))
+		copy(views, allAppViews)
+		appViewsMu.Unlock()
+		for _, av := range views {
+			if h := av.getHWND(); h != 0 {
+				hideAppWindow(h)
+			}
+		}
+	}); err != nil {
+		fmt.Println("[oblitools] bind error __go_showManagePanel:", err)
+	}
+
+	// __go_hideManagePanel: restore the active app window after the overlay closes.
+	if err := w.Bind("__go_hideManagePanel", func() {
+		managePanelOpen.Store(false)
+		curActive := int(activeAppIdx.Load())
+		appViewsMu.Lock()
+		views := make([]*AppView, len(allAppViews))
+		copy(views, allAppViews)
+		appViewsMu.Unlock()
+		for i, av := range views {
+			h := av.getHWND()
+			if h == 0 {
+				continue
+			}
+			if i == curActive {
+				positionAppWindow(h, shellHWND, 0, 0, true)
+			} else {
+				hideAppWindow(h)
+			}
+		}
+	}); err != nil {
+		fmt.Println("[oblitools] bind error __go_hideManagePanel:", err)
 	}
 }
 
@@ -1605,13 +1686,24 @@ func startPositionSyncLoop() {
 			continue
 		}
 
-		minimized := isWindowMinimized(h)
-		curActive := int(activeAppIdx.Load())
-
 		appViewsMu.Lock()
 		views := make([]*AppView, len(allAppViews))
 		copy(views, allAppViews)
 		appViewsMu.Unlock()
+
+		// While the manage-apps panel is open, keep all app windows hidden so
+		// the shell overlay is not occluded by the native WebView windows.
+		if managePanelOpen.Load() {
+			for _, av := range views {
+				if hwnd := av.getHWND(); hwnd != 0 {
+					hideAppWindow(hwnd)
+				}
+			}
+			continue
+		}
+
+		minimized := isWindowMinimized(h)
+		curActive := int(activeAppIdx.Load())
 
 		for i, av := range views {
 			hwnd := av.getHWND()
