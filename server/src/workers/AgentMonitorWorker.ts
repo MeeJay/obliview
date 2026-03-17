@@ -2,6 +2,7 @@ import { BaseMonitorWorker, type CheckResult } from './BaseMonitorWorker';
 import { agentPushData } from '../services/agent.service';
 import { db } from '../db';
 import { SOCKET_EVENTS } from '@obliview/shared';
+import { SERVER_START_TIME } from '../utils/serverStartTime';
 
 /**
  * Agent Monitor Worker (passive).
@@ -67,24 +68,35 @@ export class AgentMonitorWorker extends BaseMonitorWorker {
       const snapshot = agentPushData.get(agentDeviceId);
 
       // Resolve effective settings — when override_group_settings is false and the
-      // device belongs to a group, the group's agent_group_config takes precedence.
-      // This mirrors the same logic as rowToDevice / resolvedSettings in agent.service.ts.
+      // device belongs to a group, walk the FULL group closure chain (root → leaf)
+      // so that sub-group configs override parent configs, matching the same hierarchy
+      // as settingsService.resolveForMonitor:
+      //   device own values → global default
+      //   group chain root→leaf each overrides previous
+      //   device override_group_settings=true → device values always win
       let effectiveCheckInterval = device.check_interval_seconds;
       let effectiveHeartbeatMonitoring = device.heartbeat_monitoring ?? true;
       let effectiveMaxMissedPushes: number | null = device.agent_max_missed_pushes ?? null;
 
       if (!device.override_group_settings && device.group_id !== null) {
-        const groupRow = await db('monitor_groups')
-          .where({ id: device.group_id })
-          .select('agent_group_config')
-          .first() as { agent_group_config: unknown } | undefined;
-        const cfg = typeof groupRow?.agent_group_config === 'string'
-          ? JSON.parse(groupRow.agent_group_config)
-          : groupRow?.agent_group_config as { pushIntervalSeconds?: number | null; heartbeatMonitoring?: boolean | null; maxMissedPushes?: number | null } | null | undefined;
-        if (cfg) {
-          if (cfg.pushIntervalSeconds != null)  effectiveCheckInterval        = cfg.pushIntervalSeconds;
-          if (cfg.heartbeatMonitoring  != null)  effectiveHeartbeatMonitoring = cfg.heartbeatMonitoring;
-          if (cfg.maxMissedPushes      != null)  effectiveMaxMissedPushes     = cfg.maxMissedPushes;
+        // Traverse ancestor chain ordered root→leaf (depth DESC → root first, depth=0 = self last).
+        // Each row that has a non-null value overrides whatever came before it, so the
+        // most-specific group (direct parent, depth=0) wins over the root group.
+        const ancestorRows = await db('group_closure')
+          .join('monitor_groups', 'monitor_groups.id', 'group_closure.ancestor_id')
+          .where('group_closure.descendant_id', device.group_id)
+          .orderBy('group_closure.depth', 'desc') // root first → direct group last
+          .select('monitor_groups.agent_group_config') as { agent_group_config: unknown }[];
+
+        for (const row of ancestorRows) {
+          const cfg = typeof row.agent_group_config === 'string'
+            ? JSON.parse(row.agent_group_config)
+            : row.agent_group_config as { pushIntervalSeconds?: number | null; heartbeatMonitoring?: boolean | null; maxMissedPushes?: number | null } | null | undefined;
+          if (cfg) {
+            if (cfg.pushIntervalSeconds != null) effectiveCheckInterval       = cfg.pushIntervalSeconds;
+            if (cfg.heartbeatMonitoring  != null) effectiveHeartbeatMonitoring = cfg.heartbeatMonitoring;
+            if (cfg.maxMissedPushes      != null) effectiveMaxMissedPushes    = cfg.maxMissedPushes;
+          }
         }
       }
 
@@ -92,10 +104,22 @@ export class AgentMonitorWorker extends BaseMonitorWorker {
       const maxStaleMs = effectiveCheckInterval * effectiveMaxMissed * 1000;
 
       if (!snapshot) {
-        // No push received yet
-        result = effectiveHeartbeatMonitoring
-          ? { status: 'down', message: 'Waiting for first agent push...' }
-          : { status: 'inactive', message: 'No data received (heartbeat monitoring disabled)' };
+        // No push received since server start.
+        // Apply a startup grace period to avoid spamming notifications while agents
+        // reconnect after a server restart.  Formula (per agent): 60s + checkInterval × maxMissed.
+        // During this window we return the last confirmed status (a no-op for the state machine),
+        // which prevents retryCount from accumulating and triggering an offline notification.
+        const gracePeriodMs = 60_000 + effectiveCheckInterval * effectiveMaxMissed * 1000;
+        if (Date.now() - SERVER_START_TIME < gracePeriodMs) {
+          result = {
+            status: this.getConfirmedStatus(),
+            message: 'Server restarted — waiting for agent reconnect...',
+          };
+        } else {
+          result = effectiveHeartbeatMonitoring
+            ? { status: 'down', message: 'Waiting for first agent push...' }
+            : { status: 'inactive', message: 'No data received (heartbeat monitoring disabled)' };
+        }
       } else {
         const ageMs = Date.now() - snapshot.receivedAt.getTime();
         if (ageMs > maxStaleMs) {

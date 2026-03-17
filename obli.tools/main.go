@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -270,6 +271,9 @@ const tabBarJS = `(function(){
   var _inFrame=false;try{_inFrame=window!==window.top;}catch(e){_inFrame=true;}
   if(_inFrame)return;
 
+  /* App accent colour — matches appColorFromURL() in Go */
+  var _appAccent=(function(){var h=location.hostname.toLowerCase();if(h.indexOf('obliance')>=0)return '#a78bfa';if(h.indexOf('oblimap')>=0)return '#10b981';if(h.indexOf('obliguard')>=0)return '#fb923c';return '#3b82f6';})();
+
   /* Post-switch navigation -- consume before tab bar init */
   var _pnav=localStorage.getItem('__ov_pnav');
   if(_pnav&&/^\//.test(_pnav)){
@@ -397,7 +401,7 @@ const tabBarJS = `(function(){
     var logo=mk('div',
       'display:flex;align-items:center;padding:0 13px;'
       +'border-right:1px solid rgba(255,255,255,.07);flex-shrink:0');
-    logo.innerHTML='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M20.188 10.934C21.212 11.604 21.212 12.396 20.188 13.066C18.768 14.009 16.026 16 12 16C7.974 16 5.232 14.009 3.812 13.066C2.788 12.396 2.788 11.604 3.812 10.934C5.232 9.991 7.974 8 12 8C16.026 8 18.768 9.991 20.188 10.934Z"/></svg>';
+    logo.innerHTML='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="'+_appAccent+'" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M20.188 10.934C21.212 11.604 21.212 12.396 20.188 13.066C18.768 14.009 16.026 16 12 16C7.974 16 5.232 14.009 3.812 13.066C2.788 12.396 2.788 11.604 3.812 10.934C5.232 9.991 7.974 8 12 8C16.026 8 18.768 9.991 20.188 10.934Z"/></svg>';
     bar.appendChild(logo);
 
     /* Tenant tabs -- each has a per-tenant unread badge */
@@ -405,7 +409,7 @@ const tabBarJS = `(function(){
     tenants.forEach(function(t){
       var active=t.id===currentTenantId;
       var tab=mk('button',
-        'padding:0 14px;border:none;border-bottom:2px solid '+(active?'#6366f1':'transparent')+';'
+        'padding:0 14px;border:none;border-bottom:2px solid '+(active?_appAccent:'transparent')+';'
         +'background:none;color:'+(active?'#e0e0e0':'#56566a')+';'
         +'font-size:13px;font-weight:'+(active?'600':'400')+';'
         +'cursor:pointer;white-space:nowrap;flex-shrink:0;transition:color .15s,border-color .15s;'
@@ -527,7 +531,7 @@ const tabBarJS = `(function(){
         var list=mk('div','overflow-y:auto;flex:1');
         alerts.forEach(function(al){
           var unread=!al.read;
-          var sc={down:'#ef4444',up:'#22c55e',warning:'#f59e0b',info:'#818cf8'}[al.severity]||'#6366f1';
+          var sc={down:'#ef4444',up:'#3b82f6',warning:'#f59e0b',info:'#818cf8'}[al.severity]||'#3b82f6';
           var row=mk('div',
             'padding:10px 15px;border-bottom:1px solid rgba(255,255,255,.05);'
             +'cursor:pointer;display:flex;align-items:flex-start;gap:9px;'
@@ -706,7 +710,7 @@ const tabBarJS = `(function(){
     cb2.onmouseleave=function(){cb2.style.color='#888';cb2.style.borderColor='rgba(255,255,255,.12)';};
     cb2.onclick=function(){ov.remove();};
     var sb=mk('button',
-      'padding:8px 18px;border-radius:8px;border:none;background:#6366f1;'
+      'padding:8px 18px;border-radius:8px;border:none;background:'+_appAccent+';'
       +'color:#fff;cursor:pointer;font-size:13px;font-weight:500;transition:opacity .15s');
     sb.textContent='Enregistrer';
     sb.onmouseenter=function(){sb.style.opacity='.85';};
@@ -723,7 +727,7 @@ const tabBarJS = `(function(){
       ov.remove();
       /* Refresh cycling-button colour */
       var btn=document.getElementById('__ov_cb');
-      if(btn)btn.style.color=(autoCycleEnabled||followAlertsEnabled)?'#6366f1':'#56566a';
+      if(btn)btn.style.color=(autoCycleEnabled||followAlertsEnabled)?_appAccent:'#56566a';
       /* Restart cyclers with new config */
       startCyclers(tenants,currentTenantId,tabCfg);
     };
@@ -812,15 +816,15 @@ const setupHTML = `<!DOCTYPE html>
 body{background:#0f0f17;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
 .card{background:#1a1a2e;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:40px 44px;width:420px;box-shadow:0 24px 80px rgba(0,0,0,.6)}
 .logo{display:flex;align-items:center;gap:12px;margin-bottom:28px}
-.ico{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:22px}
+.ico{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#60a5fa);display:flex;align-items:center;justify-content:center;font-size:22px}
 .name{font-size:22px;font-weight:700;color:#fff;letter-spacing:-.3px}
 h2{font-size:17px;font-weight:600;color:#fff;margin-bottom:8px}
 p{font-size:13px;color:#888;margin-bottom:24px;line-height:1.6}
 label{display:block;font-size:11px;font-weight:600;color:#999;margin-bottom:7px;letter-spacing:.6px;text-transform:uppercase}
 input{width:100%;padding:10px 14px;background:#252538;border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e0e0e0;font-size:14px;outline:none;transition:border-color .15s;margin-bottom:18px}
-input:focus{border-color:#6366f1}
+input:focus{border-color:#3b82f6}
 input::placeholder{color:#555}
-button{width:100%;padding:11px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s;letter-spacing:.1px}
+button{width:100%;padding:11px;background:linear-gradient(135deg,#3b82f6,#60a5fa);border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s;letter-spacing:.1px}
 button:hover{opacity:.88}
 .err{font-size:12px;color:#f87171;margin-top:12px;min-height:16px;text-align:center}
 </style>
@@ -903,8 +907,21 @@ func appColorFromURL(rawURL string) string {
 	case strings.Contains(lower, "obliguard"):
 		return "#fb923c"
 	default:
-		return "#6366f1"
+		return "#3b82f6" // Obliview / default → blue
 	}
+}
+
+// hexColorToCOLORREF converts "#RRGGBB" to a Windows COLORREF value (0x00BBGGRR).
+// Returns 0 (black) for invalid input.
+func hexColorToCOLORREF(hex string) uint32 {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return 0
+	}
+	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
+	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
+	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
+	return uint32(b)<<16 | uint32(g)<<8 | uint32(r)
 }
 
 // originOf returns "scheme://host" for rawURL, or "" on parse error.
@@ -1003,8 +1020,8 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
 #ot-add-row{display:flex;gap:6px;margin-top:12px}
 #ot-add-input{flex:1;background:#1e1e28;border:1px solid rgba(255,255,255,.1);
   border-radius:6px;color:#ccc;font-size:12px;padding:6px 10px;outline:none}
-#ot-add-input:focus{border-color:#6366f1}
-#ot-add-btn{background:#6366f1;border:none;border-radius:6px;color:#fff;
+#ot-add-input:focus{border-color:#3b82f6}
+#ot-add-btn{background:#3b82f6;border:none;border-radius:6px;color:#fff;
   font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap;transition:opacity .15s}
 #ot-add-btn:hover{opacity:.85}
 </style>
@@ -1032,7 +1049,7 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
   function buildTabs(){
     tabs.innerHTML='';
     APPS.forEach(function(app,i){
-      var col=app.color||'#6366f1';
+      var col=app.color||'#3b82f6';
       var btn=document.createElement('button');
       btn.className='ot-tab'+(i===activeIdx?' active':'');
       btn.style.borderBottomColor=i===activeIdx?col:'transparent';
@@ -1136,7 +1153,7 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
     APPS.forEach(function(app,i){
       var row=document.createElement('div');row.className='ot-row';
       var dot=document.createElement('span');dot.className='ot-rdot';
-      dot.style.background=app.color||'#6366f1';
+      dot.style.background=app.color||'#3b82f6';
       var info=document.createElement('div');info.className='ot-rinfo';
       var nm=document.createElement('div');nm.className='ot-rname';nm.textContent=app.name;
       var ul=document.createElement('div');ul.className='ot-rurl';ul.textContent=app.url;
@@ -1163,7 +1180,7 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
     try{new URL(u);}catch(e){return;}
     var lower=u.toLowerCase();
     var name=u.replace(/^https?:\/\//,'').replace(/\/.*/,'');
-    var color='#6366f1';
+    var color='#3b82f6';
     if(lower.indexOf('obliance')>=0)color='#a78bfa';
     else if(lower.indexOf('oblimap')>=0)color='#10b981';
     else if(lower.indexOf('obliguard')>=0)color='#fb923c';
@@ -1575,6 +1592,14 @@ func launchAppView(av *AppView, cfg *Config) {
 	// These are no-ops on non-Windows platforms.
 	stripWindowChrome(hwnd)
 	setWindowOwner(hwnd, shellHWND)
+
+	// Apply app-adaptive DWM border colour so the thin Windows 11 window
+	// accent border matches the app's brand colour instead of the system accent.
+	borderColor := av.Entry.Color
+	if borderColor == "" {
+		borderColor = appColorFromURL(av.Entry.URL)
+	}
+	setWindowBorderColor(hwnd, hexColorToCOLORREF(borderColor))
 
 	// Determine whether this app should be visible on launch.
 	appViewsMu.Lock()

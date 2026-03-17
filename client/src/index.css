@@ -60,8 +60,8 @@
   --c-text-secondary:        152 138 118;
   --c-text-muted:            106 94 78;
 
-  --c-status-up:             0 195 95;
-  --c-status-up-bg:          0 26 16;
+  --c-status-up:             0 160 255;
+  --c-status-up-bg:          0 20 42;
   --c-status-down:           255 56 96;
   --c-status-down-bg:        42 0 16;
   --c-status-pending:        255 170 0;
@@ -176,9 +176,9 @@
 }
 
 /* ── Card status borders + glows — driven by [data-status] attribute ────────── */
-/* "up" = clean green border only — no outer glow (most cards are up, avoid fog effect) */
+/* "up" = clean blue border only — no outer glow (most cards are up, avoid fog effect) */
 [data-theme="neon"] [data-status="up"] {
-  border-color: rgb(0 195 95 / 0.45) !important;
+  border-color: rgb(0 160 255 / 0.45) !important;
 }
 /* Problem states: tight neon glow so they stand out clearly */
 [data-theme="neon"] [data-status="down"] {
@@ -253,3 +253,15 @@
 [data-theme="neon"] .bg-bg-secondary {
   border-color: rgb(var(--c-border) / 1);
 }
+
+/* ── Neon: remap hard-coded green-* "UP" indicators → blue ──────────────────
+   Components use Tailwind green-* classes for "up" status.  On the neon theme
+   those are overridden here so only the CSS-variable based classes (bg-status-up,
+   text-status-up, etc.) need no change — they already use --c-status-up.       */
+[data-theme="neon"] .text-green-400                { color: rgb(var(--c-status-up)); }
+[data-theme="neon"] .bg-green-500                  { background-color: rgb(var(--c-status-up)); }
+[data-theme="neon"] .border-l-green-500            { border-left-color: rgb(var(--c-status-up)); }
+[data-theme="neon"] .bg-green-500\/10              { background-color: rgb(var(--c-status-up) / 0.10); }
+[data-theme="neon"] .bg-green-500\/20              { background-color: rgb(var(--c-status-up) / 0.20); }
+[data-theme="neon"] .border-green-500\/25          { border-color:      rgb(var(--c-status-up) / 0.25); }
+[data-theme="neon"] .hover\:bg-green-500\/20:hover { background-color: rgb(var(--c-status-up) / 0.20); }

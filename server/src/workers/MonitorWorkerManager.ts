@@ -16,6 +16,7 @@ import { JsonApiMonitorWorker } from './JsonApiMonitorWorker';
 import { BrowserMonitorWorker } from './BrowserMonitorWorker';
 import { ValueWatcherMonitorWorker } from './ValueWatcherMonitorWorker';
 import { AgentMonitorWorker } from './AgentMonitorWorker';
+import { db } from '../db';
 import { monitorService } from '../services/monitor.service';
 import { settingsService } from '../services/settings.service';
 import { groupNotificationService } from '../services/groupNotification.service';
@@ -124,6 +125,43 @@ export class MonitorWorkerManager {
   async restartMonitors(monitorIds: number[]): Promise<void> {
     for (const id of monitorIds) {
       await this.restartMonitor(id);
+    }
+  }
+
+  /**
+   * Restart all running workers whose effective settings may have changed
+   * because a settings row was added, modified, or removed at the given scope.
+   *
+   * - 'global': every currently-running worker is restarted (global settings affect all monitors).
+   * - 'group' + scopeId: workers for monitors in this group or any descendant group.
+   * - 'monitor' + scopeId: only that specific worker.
+   */
+  async restartAffectedBySettings(scope: 'monitor' | 'group' | 'global', scopeId: number | null): Promise<void> {
+    let monitorIds: number[];
+
+    if (scope === 'monitor' && scopeId !== null) {
+      monitorIds = [scopeId];
+    } else if (scope === 'group' && scopeId !== null) {
+      // Include this group and all descendant groups (closure table).
+      const descendants = await db('group_closure')
+        .where('ancestor_id', scopeId)
+        .select('descendant_id') as { descendant_id: number }[];
+      const groupIds = descendants.map(r => r.descendant_id);
+      const rows = await db('monitors')
+        .whereIn('group_id', groupIds)
+        .select('id') as { id: number }[];
+      monitorIds = rows.map(r => r.id);
+    } else {
+      // Global: restart every currently-running worker.
+      monitorIds = [...this.workers.keys()];
+    }
+
+    // Only restart monitors that are actively running; others will pick up
+    // fresh settings the next time startMonitor() is called.
+    const toRestart = monitorIds.filter(id => this.workers.has(id));
+    if (toRestart.length > 0) {
+      logger.info(`Restarting ${toRestart.length} worker(s) due to ${scope} settings change`);
+      await this.restartMonitors(toRestart);
     }
   }
 

@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { settingsService } from '../services/settings.service';
+import { MonitorWorkerManager } from '../workers/MonitorWorkerManager';
 import type { SettingsScope } from '@obliview/shared';
 import type { SettingsKey } from '@obliview/shared';
 import { AppError } from '../middleware/errorHandler';
@@ -70,6 +71,9 @@ export const settingsController = {
 
       await settingsService.set(scope, scopeId, key as SettingsKey, value);
 
+      // Restart affected workers so they pick up the new settings immediately.
+      void MonitorWorkerManager.getInstance().restartAffectedBySettings(scope, scopeId);
+
       // Broadcast settings update
       const io = req.app.get('io');
       if (io) {
@@ -98,6 +102,9 @@ export const settingsController = {
         overrides.map((o) => ({ key: o.key as SettingsKey, value: o.value })),
       );
 
+      // Restart affected workers so they pick up the new settings immediately.
+      void MonitorWorkerManager.getInstance().restartAffectedBySettings(scope, scopeId);
+
       const io = req.app.get('io');
       if (io) {
         io.to('role:admin').emit('settings:updated', { scope, scopeId, overrides });
@@ -118,6 +125,9 @@ export const settingsController = {
       const deleted = await settingsService.remove(scope, scopeId, key as SettingsKey);
 
       if (deleted) {
+        // Restart affected workers so they pick up the reset (inherited) settings.
+        void MonitorWorkerManager.getInstance().restartAffectedBySettings(scope, scopeId);
+
         const io = req.app.get('io');
         if (io) {
           io.to('role:admin').emit('settings:updated', { scope, scopeId, key, removed: true });

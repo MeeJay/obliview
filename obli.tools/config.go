@@ -81,8 +81,14 @@ func loadConfig() (*Config, error) {
 		cfg.Apps = []AppEntry{{
 			Name:  "App",
 			URL:   cfg.URL,
-			Color: "#6366f1",
+			Color: appColorFromURL(cfg.URL),
 		}}
+	}
+
+	// Always recompute app colours from URL so stale or wrong stored values
+	// are fixed automatically on every launch.
+	for i := range cfg.Apps {
+		cfg.Apps[i].Color = appColorFromURL(cfg.Apps[i].URL)
 	}
 
 	return &cfg, nil

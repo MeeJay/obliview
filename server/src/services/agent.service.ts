@@ -132,24 +132,56 @@ function rowToDevice(row: AgentDeviceRow, groupConfig?: AgentGroupConfig | null,
   };
 }
 
-/** Fetch the agent_group_config for a group (null if group not found or has no config). */
-async function getGroupAgentConfig(groupId: number): Promise<AgentGroupConfig | null> {
-  const g = await db('monitor_groups').where({ id: groupId }).select('agent_group_config').first() as
-    { agent_group_config: unknown } | undefined;
-  if (!g?.agent_group_config) return null;
-  return (typeof g.agent_group_config === 'string'
-    ? JSON.parse(g.agent_group_config)
-    : g.agent_group_config) as AgentGroupConfig;
+/**
+ * Resolve the effective agent group config by traversing the full ancestor chain
+ * root→leaf (depth DESC → root first, direct group last).
+ * Each level that has a non-null value overrides the previous, so the most-specific
+ * group (direct parent) wins — mirrors AgentMonitorWorker and settingsService logic.
+ */
+async function resolveGroupAgentConfig(groupId: number): Promise<AgentGroupConfig | null> {
+  const ancestorRows = await db('group_closure')
+    .join('monitor_groups', 'monitor_groups.id', 'group_closure.ancestor_id')
+    .where('group_closure.descendant_id', groupId)
+    .orderBy('group_closure.depth', 'desc') // root first → direct group last
+    .select('monitor_groups.agent_group_config') as { agent_group_config: unknown }[];
+
+  let resolved: Partial<AgentGroupConfig> | null = null;
+  for (const row of ancestorRows) {
+    const cfg = typeof row.agent_group_config === 'string'
+      ? JSON.parse(row.agent_group_config) as AgentGroupConfig | null | undefined
+      : row.agent_group_config as AgentGroupConfig | null | undefined;
+    if (cfg) {
+      if (!resolved) resolved = {};
+      if (cfg.pushIntervalSeconds != null) resolved.pushIntervalSeconds = cfg.pushIntervalSeconds;
+      if (cfg.heartbeatMonitoring  != null) resolved.heartbeatMonitoring  = cfg.heartbeatMonitoring;
+      if (cfg.maxMissedPushes      != null) resolved.maxMissedPushes      = cfg.maxMissedPushes;
+    }
+  }
+  return resolved as AgentGroupConfig | null;
 }
 
-/** Fetch the agent_thresholds for a group (null if group not found or has none). */
-async function getGroupAgentThresholds(groupId: number): Promise<AgentThresholds | null> {
-  const g = await db('monitor_groups').where({ id: groupId }).select('agent_thresholds').first() as
-    { agent_thresholds: unknown } | undefined;
-  if (!g?.agent_thresholds) return null;
-  return (typeof g.agent_thresholds === 'string'
-    ? JSON.parse(g.agent_thresholds)
-    : g.agent_thresholds) as AgentThresholds;
+/**
+ * Resolve the effective agent thresholds by traversing the full ancestor chain
+ * root→leaf. Each level spreads its thresholds over the previous, so the
+ * most-specific group wins.
+ */
+async function resolveGroupAgentThresholds(groupId: number): Promise<AgentThresholds | null> {
+  const ancestorRows = await db('group_closure')
+    .join('monitor_groups', 'monitor_groups.id', 'group_closure.ancestor_id')
+    .where('group_closure.descendant_id', groupId)
+    .orderBy('group_closure.depth', 'desc')
+    .select('monitor_groups.agent_thresholds') as { agent_thresholds: unknown }[];
+
+  let resolved: AgentThresholds | null = null;
+  for (const row of ancestorRows) {
+    const t = typeof row.agent_thresholds === 'string'
+      ? JSON.parse(row.agent_thresholds) as AgentThresholds | null | undefined
+      : row.agent_thresholds as AgentThresholds | null | undefined;
+    if (t) {
+      resolved = { ...(resolved ?? {}), ...t } as AgentThresholds;
+    }
+  }
+  return resolved;
 }
 
 // ============================================================
@@ -268,40 +300,39 @@ export const agentService = {
   // ── Devices ─────────────────────────────────────────────
 
   async listDevices(tenantId: number, status?: AgentDevice['status']): Promise<AgentDevice[]> {
-    // LEFT JOIN to fetch agent_group_config in one round-trip so resolvedSettings
-    // can be computed without N+1 queries.
-    const query = db('agent_devices as d')
-      .leftJoin('monitor_groups as g', 'g.id', 'd.group_id')
-      .where({ 'd.tenant_id': tenantId })
-      .select(
-        'd.*',
-        db.raw('g.agent_group_config as _group_agent_config'),
-        db.raw('g.agent_thresholds as _group_agent_thresholds'),
-      )
-      .orderBy('d.created_at', 'desc');
-    if (status) query.where({ 'd.status': status });
-    const rows = await query as (AgentDeviceRow & { _group_agent_config: unknown; _group_agent_thresholds: unknown })[];
-    return rows.map((r) => {
-      const gc = r._group_agent_config
-        ? (typeof r._group_agent_config === 'string'
-          ? JSON.parse(r._group_agent_config)
-          : r._group_agent_config) as AgentGroupConfig
-        : null;
-      const gt = r._group_agent_thresholds
-        ? (typeof r._group_agent_thresholds === 'string'
-          ? JSON.parse(r._group_agent_thresholds)
-          : r._group_agent_thresholds) as AgentThresholds
-        : null;
-      return rowToDevice(r, gc, gt);
-    });
+    const query = db('agent_devices')
+      .where({ tenant_id: tenantId })
+      .select('*')
+      .orderBy('created_at', 'desc');
+    if (status) query.where({ status });
+    const rows = await query as AgentDeviceRow[];
+
+    // Deduplicate group IDs, then resolve each group's full closure chain once.
+    const uniqueGroupIds = [...new Set(rows.map(r => r.group_id).filter((id): id is number => id !== null))];
+    const configMap = new Map<number, AgentGroupConfig | null>();
+    const thresholdsMap = new Map<number, AgentThresholds | null>();
+    await Promise.all(uniqueGroupIds.map(async (gid) => {
+      const [gc, gt] = await Promise.all([
+        resolveGroupAgentConfig(gid),
+        resolveGroupAgentThresholds(gid),
+      ]);
+      configMap.set(gid, gc);
+      thresholdsMap.set(gid, gt);
+    }));
+
+    return rows.map(r => rowToDevice(
+      r,
+      r.group_id !== null ? (configMap.get(r.group_id) ?? null) : null,
+      r.group_id !== null ? (thresholdsMap.get(r.group_id) ?? null) : null,
+    ));
   },
 
   async getDeviceById(id: number): Promise<AgentDevice | null> {
     const row = await db('agent_devices').where({ id }).first() as AgentDeviceRow | undefined;
     if (!row) return null;
     const [groupConfig, groupThresholds] = await Promise.all([
-      row.group_id ? getGroupAgentConfig(row.group_id) : null,
-      row.group_id ? getGroupAgentThresholds(row.group_id) : null,
+      row.group_id ? resolveGroupAgentConfig(row.group_id) : null,
+      row.group_id ? resolveGroupAgentThresholds(row.group_id) : null,
     ]);
     return rowToDevice(row, groupConfig, groupThresholds);
   },
@@ -310,8 +341,8 @@ export const agentService = {
     const row = await db('agent_devices').where({ uuid }).first() as AgentDeviceRow | undefined;
     if (!row) return null;
     const [groupConfig, groupThresholds] = await Promise.all([
-      row.group_id ? getGroupAgentConfig(row.group_id) : null,
-      row.group_id ? getGroupAgentThresholds(row.group_id) : null,
+      row.group_id ? resolveGroupAgentConfig(row.group_id) : null,
+      row.group_id ? resolveGroupAgentThresholds(row.group_id) : null,
     ]);
     return rowToDevice(row, groupConfig, groupThresholds);
   },
@@ -349,7 +380,7 @@ export const agentService = {
       .update(update)
       .returning('*') as AgentDeviceRow[];
     if (!row) return null;
-    const groupConfig = row.group_id ? await getGroupAgentConfig(row.group_id) : null;
+    const groupConfig = row.group_id ? await resolveGroupAgentConfig(row.group_id) : null;
     const device = rowToDevice(row, groupConfig);
 
     // Sync the associated monitor name whenever device.name is explicitly changed

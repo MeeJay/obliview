@@ -17,6 +17,14 @@ var (
 	procClientToScreen    = user32.NewProc("ClientToScreen")
 	procShowWindow        = user32.NewProc("ShowWindow")
 	procIsIconic          = user32.NewProc("IsIconic")
+
+	dwmapi              = syscall.NewLazyDLL("dwmapi.dll")
+	procDwmSetWindowAttr = dwmapi.NewProc("DwmSetWindowAttribute")
+)
+
+const (
+	// DWMWA_BORDER_COLOR (Windows 11 build 22000+): sets the thin DWM accent border.
+	dwmwaBorderColor = 34
 )
 
 const (
@@ -78,6 +86,17 @@ func winGetClientRect(hwnd uintptr) winRect {
 
 func winClientToScreen(hwnd uintptr, pt *winPoint) {
 	procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(pt)))
+}
+
+// setWindowBorderColor sets the thin DWM accent border of hwnd to colorRef (0x00BBGGRR).
+// On Windows 10 or older builds that don't support DWMWA_BORDER_COLOR this is a no-op.
+func setWindowBorderColor(hwnd uintptr, colorRef uint32) {
+	procDwmSetWindowAttr.Call(
+		hwnd,
+		uintptr(dwmwaBorderColor),
+		uintptr(unsafe.Pointer(&colorRef)),
+		4, // sizeof(COLORREF)
+	)
 }
 
 // stripWindowChrome removes the title bar and borders from an app webview window,

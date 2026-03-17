@@ -535,4 +535,13 @@ export abstract class BaseMonitorWorker {
    * Must resolve within this.config.timeoutMs.
    */
   abstract performCheck(): Promise<CheckResult>;
+
+  /**
+   * Expose the last confirmed (notified) status so subclasses can synthesize
+   * a no-op result (e.g. during the startup grace period) without triggering
+   * a spurious status transition.
+   */
+  protected getConfirmedStatus(): MonitorStatus {
+    return this.confirmedStatus;
+  }
 }

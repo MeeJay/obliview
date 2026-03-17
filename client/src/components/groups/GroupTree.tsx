@@ -225,10 +225,20 @@ function UngroupedSection({
   );
 }
 
-/** Format a numeric-looking value with locale grouping */
+/** Format a numeric-looking value with locale grouping.
+ *  Very small numbers (< 0.001) use full decimal notation to avoid toLocaleString()
+ *  collapsing them to "0" (which only allows 3 fraction digits by default).
+ */
 function formatVal(v: string): string {
   const n = Number(v);
-  if (!isNaN(n) && isFinite(n)) return n.toLocaleString();
+  if (!isNaN(n) && isFinite(n)) {
+    if (n !== 0 && Math.abs(n) < 0.001) {
+      // How many decimal places needed to show at least 4 significant digits
+      const places = Math.max(0, -Math.floor(Math.log10(Math.abs(n)))) + 4;
+      return n.toFixed(Math.min(places, 15)).replace(/\.?0+$/, '') || '0';
+    }
+    return n.toLocaleString();
+  }
   return v;
 }
 

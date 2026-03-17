@@ -8,6 +8,7 @@ package main
 // but each app view appears as an independent Cocoa window.
 
 func stripWindowChrome(_ uintptr)                                {}
+func setWindowBorderColor(_ uintptr, _ uint32)                   {}
 func setWindowOwner(_, _ uintptr)                                {}
 func positionAppWindow(_, _ uintptr, _, _ int, _ bool)           {}
 func showAppWindow(_ uintptr)                                    {}

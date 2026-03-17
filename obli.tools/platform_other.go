@@ -5,6 +5,7 @@ package main
 // Linux / other-platform stubs.
 
 func stripWindowChrome(_ uintptr)                                {}
+func setWindowBorderColor(_ uintptr, _ uint32)                   {}
 func setWindowOwner(_, _ uintptr)                                {}
 func positionAppWindow(_, _ uintptr, _, _ int, _ bool)           {}
 func showAppWindow(_ uintptr)                                    {}

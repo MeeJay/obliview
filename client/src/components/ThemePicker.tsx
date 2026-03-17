@@ -41,7 +41,7 @@ function ModernPreviewSvg() {
 
       {/* Stats row */}
       {[0, 1, 2, 3].map((i) => {
-        const colors = ['#2ea043', '#f85149', '#d29922', '#58a6ff'];
+        const colors = ['#3b82f6', '#f85149', '#d29922', '#58a6ff'];
         const labels = [68, 4, 2, 8];
         const x = 70 + i * 52;
         return (
@@ -56,7 +56,7 @@ function ModernPreviewSvg() {
 
       {/* Monitor cards */}
       {[0, 1, 2].map((i) => {
-        const statusColors = ['#2ea043', '#f85149', '#2ea043'];
+        const statusColors = ['#3b82f6', '#f85149', '#3b82f6'];
         const x = 70 + i * 69;
         return (
           <g key={i}>
@@ -78,7 +78,7 @@ function ModernPreviewSvg() {
             ) : (
               <polyline
                 points={`${x+7},104 ${x+12},101 ${x+17},103 ${x+22},99 ${x+27},101 ${x+32},98 ${x+37},100 ${x+42},97 ${x+47},99 ${x+52},96 ${x+57},98`}
-                fill="none" stroke="#2ea043" strokeWidth="1.2" opacity="0.8"
+                fill="none" stroke="#3b82f6" strokeWidth="1.2" opacity="0.8"
               />
             )}
             {/* response time */}
@@ -91,7 +91,7 @@ function ModernPreviewSvg() {
 
       {/* Agent card */}
       <rect x="70" y="126" width="200" height="36" rx="4" fill="#161b22" stroke="#30363d" strokeWidth="0.5" />
-      <rect x="78" y="132" width="5" height="5" rx="2.5" fill="#2ea043" />
+      <rect x="78" y="132" width="5" height="5" rx="2.5" fill="#3b82f6" />
       <rect x="87" y="133" width="35" height="4" rx="2" fill="#e6edf3" />
       {/* CPU bar */}
       <rect x="78" y="143" width="90" height="3" rx="2" fill="#1c2333" />
@@ -112,7 +112,7 @@ function NeonPreviewSvg() {
           <feGaussianBlur stdDeviation="2.5" result="blur" />
           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
-        <filter id="glow-green" x="-30%" y="-30%" width="160%" height="160%">
+        <filter id="glow-blue" x="-30%" y="-30%" width="160%" height="160%">
           <feGaussianBlur stdDeviation="2" result="blur" />
           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
@@ -152,8 +152,8 @@ function NeonPreviewSvg() {
 
       {/* Stats row */}
       {[0, 1, 2, 3].map((i) => {
-        const colors = ['#00ff88', '#ff3860', '#ffaa00', '#00c8ff'];
-        const filters = ['url(#glow-green)', 'url(#glow-red)', undefined, 'url(#glow-cyan)'];
+        const colors = ['#00a0ff', '#ff3860', '#ffaa00', '#00c8ff'];
+        const filters = ['url(#glow-blue)', 'url(#glow-red)', undefined, 'url(#glow-cyan)'];
         const labels = [68, 4, 2, 8];
         const x = 70 + i * 52;
         return (
@@ -168,8 +168,8 @@ function NeonPreviewSvg() {
 
       {/* Monitor cards */}
       {[0, 1, 2].map((i) => {
-        const statusColors = ['#00ff88', '#ff3860', '#00ff88'];
-        const statusFilters = ['url(#glow-green)', 'url(#glow-red)', 'url(#glow-green)'];
+        const statusColors = ['#00a0ff', '#ff3860', '#00a0ff'];
+        const statusFilters = ['url(#glow-blue)', 'url(#glow-red)', 'url(#glow-blue)'];
         const x = 70 + i * 69;
         return (
           <g key={i}>
@@ -192,8 +192,8 @@ function NeonPreviewSvg() {
             ) : (
               <polyline
                 points={`${x+7},104 ${x+12},101 ${x+17},103 ${x+22},99 ${x+27},101 ${x+32},98 ${x+37},100 ${x+42},97 ${x+47},99 ${x+52},96 ${x+57},98`}
-                fill="none" stroke="#00ff88" strokeWidth="1.3" opacity="0.9"
-                filter="url(#glow-green)"
+                fill="none" stroke="#00a0ff" strokeWidth="1.3" opacity="0.9"
+                filter="url(#glow-blue)"
               />
             )}
             {/* response time */}
@@ -206,7 +206,7 @@ function NeonPreviewSvg() {
 
       {/* Agent card */}
       <rect x="70" y="126" width="200" height="36" rx="4" fill="#0d1117" stroke="#1c2a3f" strokeWidth="0.5" />
-      <rect x="78" y="132" width="5" height="5" rx="2.5" fill="#00ff88" filter="url(#glow-green)" />
+      <rect x="78" y="132" width="5" height="5" rx="2.5" fill="#00a0ff" filter="url(#glow-blue)" />
       <rect x="87" y="133" width="35" height="4" rx="2" fill="#e0f0ff" />
       {/* CPU bar */}
       <rect x="78" y="143" width="90" height="3" rx="2" fill="#111827" />

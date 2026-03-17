@@ -13,6 +13,19 @@ import { GroupPicker } from '@/components/common/GroupPicker';
 import { Checkbox } from '@/components/ui/Checkbox';
 import toast from 'react-hot-toast';
 
+/**
+ * Format a threshold number as a full decimal string so it never shows
+ * scientific notation (e.g. 9e-7 → "0.0000009") in the input field.
+ */
+function numToDecimalStr(n: number | null | undefined): string {
+  if (n == null) return '';
+  if (n !== 0 && Math.abs(n) < 0.001) {
+    const places = Math.max(0, -Math.floor(Math.log10(Math.abs(n)))) + 4;
+    return n.toFixed(Math.min(places, 15)).replace(/\.?0+$/, '') || '0';
+  }
+  return String(n);
+}
+
 export function MonitorEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -569,20 +582,28 @@ export function MonitorEditPage() {
             {form.valueWatcherOperator !== 'changed' && (
               <Input
                 label={form.valueWatcherOperator === 'between' ? t('monitors.form.minThreshold') : t('monitors.form.threshold')}
-                type="number"
-                value={form.valueWatcherThreshold ?? ''}
-                onChange={(e) => updateField('valueWatcherThreshold', e.target.value ? parseFloat(e.target.value) : null)}
-                placeholder="0"
+                type="text"
+                inputMode="decimal"
+                value={numToDecimalStr(form.valueWatcherThreshold)}
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  updateField('valueWatcherThreshold', raw ? parseFloat(raw) : null);
+                }}
+                placeholder="0.000001"
                 required
               />
             )}
             {form.valueWatcherOperator === 'between' && (
               <Input
                 label={t('monitors.form.maxThreshold')}
-                type="number"
-                value={form.valueWatcherThresholdMax ?? ''}
-                onChange={(e) => updateField('valueWatcherThresholdMax', e.target.value ? parseFloat(e.target.value) : null)}
-                placeholder="100"
+                type="text"
+                inputMode="decimal"
+                value={numToDecimalStr(form.valueWatcherThresholdMax)}
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  updateField('valueWatcherThresholdMax', raw ? parseFloat(raw) : null);
+                }}
+                placeholder="0.000002"
                 required
               />
             )}
