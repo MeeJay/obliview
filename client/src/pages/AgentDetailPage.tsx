@@ -2638,6 +2638,12 @@ export function AgentDetailPage() {
               <button
                 type="button"
                 onClick={() => {
+                  // In ObliTools: __go_openInAppTab is bound on every app WebView.
+                  // Call it directly — no SSO needed, each WebView has its own session.
+                  if (typeof (window as any).__go_openInAppTab === 'function') {
+                    (window as any).__go_openInAppTab(obliguardUrl).catch(() => {});
+                    return;
+                  }
                   ssoApi.generateSwitchToken()
                     .then((token) => {
                       const from = window.location.origin;
@@ -2660,6 +2666,10 @@ export function AgentDetailPage() {
               <button
                 type="button"
                 onClick={() => {
+                  if (typeof (window as any).__go_openInAppTab === 'function') {
+                    (window as any).__go_openInAppTab(oblimapUrl).catch(() => {});
+                    return;
+                  }
                   ssoApi.generateSwitchToken()
                     .then((token) => {
                       const from = window.location.origin;
@@ -2682,6 +2692,10 @@ export function AgentDetailPage() {
               <button
                 type="button"
                 onClick={() => {
+                  if (typeof (window as any).__go_openInAppTab === 'function') {
+                    (window as any).__go_openInAppTab(oblianceUrl).catch(() => {});
+                    return;
+                  }
                   ssoApi.generateSwitchToken()
                     .then((token) => {
                       const from = window.location.origin;

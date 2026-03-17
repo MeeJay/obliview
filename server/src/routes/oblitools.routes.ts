@@ -17,9 +17,9 @@ const router = Router();
 const SELF = { name: 'Obliview', color: '#6366f1' };
 
 const LINKED: Record<string, { name: string; color: string }> = {
-  obliguard: { name: 'Obliguard', color: '#8b5cf6' },
+  obliguard: { name: 'Obliguard', color: '#f97316' },
   oblimap:   { name: 'Oblimap',   color: '#10b981' },
-  obliance:  { name: 'Obliance',  color: '#f59e0b' },
+  obliance:  { name: 'Obliance',  color: '#8b5cf6' },
 };
 
 router.get('/manifest', requireAuth, async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
