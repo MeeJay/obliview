@@ -34,8 +34,8 @@ func (s *agentSvc) Execute(_ []string, r <-chan svc.ChangeRequest, status chan<-
 		Accepts: svc.AcceptStop | svc.AcceptShutdown,
 	}
 
-	// Run main loop in background goroutine
-	go mainLoop(cfg)
+	// Run agent in background goroutine
+	go runCmdWS(cfg)
 
 	// Wait for stop/shutdown command from SCM
 	for {

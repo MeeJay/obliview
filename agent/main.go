@@ -334,36 +334,10 @@ func applyWindowsMSIUpdate(msiPath, serverURL, apiKey string) error {
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
+// backoffSteps / backoffLevel are kept for legacy compatibility with update_notify.go
+// and other callers that may reference them on some platforms.
 var backoffSteps = []int{5 * 60, 10 * 60, 30 * 60, 60 * 60}
 var backoffLevel = 0
-
-func mainLoop(cfg *Config) {
-	log.Printf("Obliview Agent v%s starting", cfg.AgentVersion)
-	log.Printf("Server: %s", cfg.ServerURL)
-	log.Printf("Device UUID: %s", cfg.DeviceUUID)
-
-	// Check for a newer version before entering the main loop.
-	// On Linux/macOS: atomic rename + exit (service manager restarts with new binary).
-	// On Windows: writes %TEMP%\obliview-update.bat, exits; batch stops service,
-	//             moves new exe in place, restarts service.
-	checkForUpdate(cfg)
-
-	for {
-		now := time.Now().UnixMilli()
-		if cfg.BackoffUntil > 0 && now < cfg.BackoffUntil {
-			waitSec := (cfg.BackoffUntil - now) / 1000
-			if waitSec > 60 {
-				waitSec = 60
-			}
-			log.Printf("In backoff period, waiting %ds...", waitSec)
-			time.Sleep(time.Duration(waitSec) * time.Second)
-			continue
-		}
-
-		push(cfg)
-		time.Sleep(time.Duration(cfg.CheckIntervalSeconds) * time.Second)
-	}
-}
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -380,5 +354,5 @@ func main() {
 
 	// Interactive / Linux mode
 	cfg := setupConfig(*urlFlag, *keyFlag)
-	mainLoop(cfg)
+	runCmdWS(cfg)
 }
