@@ -673,12 +673,24 @@ export const agentService = {
         .where({ id: device.id })
         .update(metadataUpdate);
 
-      // Refresh
-      device = (await this.getDeviceByUuid(deviceUuid))!;
+      // Apply metadata changes in-memory (avoid redundant DB round-trip)
+      device = {
+        ...device,
+        hostname: payload.hostname,
+        ip: clientIp,
+        agentVersion: payload.agentVersion ?? device.agentVersion,
+        osInfo: payload.osInfo
+          ? { platform: payload.osInfo.platform, distro: payload.osInfo.distro ?? null, release: payload.osInfo.release ?? null, arch: payload.osInfo.arch }
+          : device.osInfo,
+        updatingSince: null,
+      };
     }
 
+    // After if/else, device is always assigned (either new insert or existing update)
+    const dev = device as AgentDevice;
+
     // Handle refused/suspended devices
-    if (device.status === 'refused' || device.status === 'suspended') {
+    if (dev.status === 'refused' || dev.status === 'suspended') {
       return { status: 'unauthorized' };
     }
 
@@ -686,34 +698,34 @@ export const agentService = {
     // For 'uninstall', also record the delivery timestamp so the cleanup job can
     // auto-delete the device after ~10 minutes of silence.
     let pendingCommand: string | undefined;
-    if (device.pendingCommand) {
-      pendingCommand = device.pendingCommand;
+    if (dev.pendingCommand) {
+      pendingCommand = dev.pendingCommand;
       const commandUpdate: Record<string, unknown> = { pending_command: null, updated_at: new Date() };
       if (pendingCommand === 'uninstall') {
         commandUpdate.uninstall_commanded_at = new Date();
       }
-      await db('agent_devices').where({ id: device.id }).update(commandUpdate);
+      await db('agent_devices').where({ id: dev.id }).update(commandUpdate);
     }
 
     // Handle pending devices
-    if (device.status === 'pending') {
+    if (dev.status === 'pending') {
       return {
         status: 'pending',
         // Use resolvedSettings so group-inherited intervals are honoured.
-        config: { checkIntervalSeconds: device.resolvedSettings.checkIntervalSeconds },
+        config: { checkIntervalSeconds: dev.resolvedSettings.checkIntervalSeconds },
         latestVersion: this.getAgentVersion().version,
         ...(pendingCommand ? { command: pendingCommand } : {}),
       };
     }
 
     // Device is approved → store single heartbeat
-    if (device.status === 'approved') {
-      await this._storeMetricsAsHeartbeat(device, payload);
+    if (dev.status === 'approved') {
+      await this._storeMetricsAsHeartbeat(dev, payload);
 
       return {
         status: 'ok',
         // Use resolvedSettings so group-inherited intervals are honoured.
-        config: { checkIntervalSeconds: device.resolvedSettings.checkIntervalSeconds },
+        config: { checkIntervalSeconds: dev.resolvedSettings.checkIntervalSeconds },
         latestVersion: this.getAgentVersion().version,
         ...(pendingCommand ? { command: pendingCommand } : {}),
       };
@@ -864,56 +876,21 @@ export const agentService = {
     };
     agentPushData.set(device.id, snapshot);
 
-    // Emit real-time update for AgentDetailPage
+    // ── Emit real-time updates FIRST (before DB writes) for lowest latency ──
     if (_io) {
       _io.to('role:admin').emit('agentPush', {
         deviceId: device.id,
         monitorId: monitor.id,
-        agentVersion: payload.agentVersion,   // lets the UI refresh without a REST round-trip
+        agentVersion: payload.agentVersion,
         metrics: m,
         violations,
         overallStatus,
         receivedAt: snapshot.receivedAt.toISOString(),
       });
-    }
-
-    // Store heartbeat — include full metrics for DB reconstruction on server restart
-    const heartbeat = await heartbeatService.create({
-      monitorId: monitor.id,
-      status: overallStatus,
-      message,
-      value: JSON.stringify({
-        // Summary fields (quick access)
-        cpu: m.cpu?.percent,
-        memory: m.memory?.percent,
-        disks: m.disks?.map(d => ({ mount: d.mount, percent: d.percent })),
-        netIn: m.network?.inBytesPerSec,
-        netOut: m.network?.outBytesPerSec,
-        loadAvg: m.loadAvg,
-        // Full metrics for reconstruction
-        _full: m,
-        _violations: violations,
-      }),
-    });
-
-    // Update monitor status
-    await db('monitors')
-      .where({ id: monitor.id })
-      .update({ status: overallStatus, updated_at: new Date() });
-
-    // Notify the frontend monitor store so the sidebar badge updates in real-time
-    if (_io) {
-      // Push the real metrics heartbeat to the dashboard cards immediately
-      _io.to('role:admin').emit(SOCKET_EVENTS.MONITOR_HEARTBEAT, {
-        monitorId: monitor.id,
-        heartbeat,
-      });
       _io.to('role:admin').emit(SOCKET_EVENTS.MONITOR_STATUS_CHANGE, {
         monitorId: monitor.id,
         newStatus: overallStatus,
       });
-      // Dedicated agent status event — includes deviceId so the sidebar can
-      // update the badge without a monitorStore lookup by agentDeviceId.
       _io.to('role:admin').emit(SOCKET_EVENTS.AGENT_STATUS_CHANGED, {
         deviceId: device.id,
         status: overallStatus,
@@ -922,17 +899,47 @@ export const agentService = {
       });
     }
 
-    // Send notifications + persist live alerts on status transitions (up ↔ alert)
+    // ── DB persistence (fire-and-forget — errors logged, don't block response) ──
+    const heartbeatValue = JSON.stringify({
+      cpu: m.cpu?.percent,
+      memory: m.memory?.percent,
+      disks: m.disks?.map(d => ({ mount: d.mount, percent: d.percent })),
+      netIn: m.network?.inBytesPerSec,
+      netOut: m.network?.outBytesPerSec,
+      loadAvg: m.loadAvg,
+      _full: m,
+      _violations: violations,
+    });
+
+    Promise.all([
+      heartbeatService.create({
+        monitorId: monitor.id,
+        status: overallStatus,
+        message,
+        value: heartbeatValue,
+      }).then(heartbeat => {
+        // Emit MONITOR_HEARTBEAT after insert so the heartbeat has an id/timestamp
+        if (_io) {
+          _io.to('role:admin').emit(SOCKET_EVENTS.MONITOR_HEARTBEAT, {
+            monitorId: monitor.id,
+            heartbeat,
+          });
+        }
+      }),
+      db('monitors')
+        .where({ id: monitor.id })
+        .update({ status: overallStatus, updated_at: new Date() }),
+    ]).catch(err => logger.error(err, `Failed to persist heartbeat/status for device ${device.id}`));
+
+    // ── Notifications + live alerts on status transitions (fire-and-forget) ──
     if (overallStatus !== previousStatus) {
       const deviceName = device.name ?? device.hostname;
       notificationService.sendForAgent(device.id, deviceName, overallStatus, previousStatus, violations).catch(
         (err) => logger.error(err, `Failed to send agent notification for device ${device.id}`),
       );
 
-      // Persist live alerts in DB so offline users see them when they reconnect
       const deviceTenantId = device.tenantId;
       if (overallStatus === 'alert') {
-        // One alert per violation, deduplicated by stable key (skipped if unread alert already exists)
         for (const [i, violation] of violations.entries()) {
           const metricKey = violationKeys[i] ?? `unknown_${i}`;
           liveAlertService.add(deviceTenantId, {
@@ -944,7 +951,6 @@ export const agentService = {
           }).catch(err => logger.error(err, `Failed to persist live alert for device ${device.id}`));
         }
       } else if (previousStatus === 'alert') {
-        // Recovery from alert state
         liveAlertService.add(deviceTenantId, {
           severity: 'up',
           title: deviceName,
