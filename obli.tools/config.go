@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // AppEntry holds one registered application in Obli.tools.
@@ -20,14 +21,21 @@ type AppEntry struct {
 var alertCache = map[string]int{}
 var alertCacheMu sync.Mutex
 
+// notifyThrottle prevents spamming OS notifications — one per origin per cooldown period.
+var notifyThrottle = map[string]time.Time{}
+var notifyThrottleMu sync.Mutex
+
+const notifyCooldown = 30 * time.Second
+
 // TabConfig holds the multi-tenant tab-cycling preferences for the desktop app.
 // The two modes are independent and can both be active simultaneously:
 //   - AutoCycle    : round-robin through all tenants every AutoCycleIntervalS seconds
 //   - FollowAlerts : switch immediately to a tenant that receives a new unread alert
 type TabConfig struct {
-	AutoCycleEnabled    bool `json:"autoCycleEnabled"`
-	AutoCycleIntervalS  int  `json:"autoCycleIntervalS"`  // seconds between automatic tenant switches
-	FollowAlertsEnabled bool `json:"followAlertsEnabled"` // switch on new unread alert from another tenant
+	AutoCycleEnabled           bool `json:"autoCycleEnabled"`
+	AutoCycleIntervalS         int  `json:"autoCycleIntervalS"`         // seconds between automatic tenant switches
+	FollowAlertsEnabled        bool `json:"followAlertsEnabled"`        // switch on new unread alert from another tenant
+	NativeNotificationsEnabled bool `json:"nativeNotificationsEnabled"` // fire OS-native notifications on new alerts
 }
 
 // Config holds all persisted user preferences.

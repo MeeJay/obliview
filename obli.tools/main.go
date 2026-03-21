@@ -169,15 +169,32 @@ const overlayJS = `(function(){
   else document.addEventListener('DOMContentLoaded',reportURL,{once:true});
 
   /* ── Alert count reporting ────────────────────────────────────────────── */
-  /* Keeps the Go badge-cache fresh so the shell tab bar shows live counts.  */
+  /* Keeps the Go badge-cache fresh so the shell tab bar shows live counts.
+     Also detects genuinely new alerts and forwards them to Go for native
+     OS notifications (Windows Toast / macOS Notification Center).           */
+  var _seenAlertIds=null;
   function reportAlerts(){
     fetch('/api/live-alerts/all',{credentials:'include'})
       .then(function(r){return r.json();})
       .then(function(d){
         var items=Array.isArray(d.data)?d.data:(Array.isArray(d)?d:(d.alerts||[]));
-        var n=items.filter(function(a){return !a.read_at&&!a.readAt&&!a.read;}).length;
+        var unread=items.filter(function(a){return !a.read_at&&!a.readAt&&!a.read;});
+        var n=unread.length;
         if(typeof window.__go_reportAlertCount==='function')
           window.__go_reportAlertCount(location.origin,n).catch(function(){});
+        /* Detect new alerts for native notifications */
+        if(_seenAlertIds===null){
+          _seenAlertIds=new Set(unread.map(function(a){return a.id;}));
+          return;
+        }
+        var fresh=unread.filter(function(a){return !_seenAlertIds.has(a.id);});
+        if(fresh.length>0&&typeof window.__go_nativeNotify==='function'){
+          var first=fresh[0];
+          var title=first.title||first.message||'New alert';
+          var body=fresh.length>1?(title+' (+' +(fresh.length-1)+' more)'):title;
+          window.__go_nativeNotify(location.origin,title,body).catch(function(){});
+        }
+        unread.forEach(function(a){_seenAlertIds.add(a.id);});
       }).catch(function(){});
   }
   setTimeout(function(){reportAlerts();setInterval(reportAlerts,30000);},4000);
@@ -305,10 +322,10 @@ const tabBarJS = `(function(){
     window.__ov_tabs_injected=true;
     window.__ov_native_tabs=true;
 
-    var tabCfg={autoCycleEnabled:false,autoCycleIntervalS:30,followAlertsEnabled:false};
+    var tabCfg={autoCycleEnabled:false,autoCycleIntervalS:30,followAlertsEnabled:false,nativeNotificationsEnabled:false};
     try{tabCfg=await window.__go_getTabConfig();}catch(e){}
     if(!tabCfg||!tabCfg.autoCycleIntervalS){
-      tabCfg={autoCycleEnabled:false,autoCycleIntervalS:30,followAlertsEnabled:false};
+      tabCfg={autoCycleEnabled:false,autoCycleIntervalS:30,followAlertsEnabled:false,nativeNotificationsEnabled:false};
     }
 
     function __ov_domReady(fn){
@@ -698,11 +715,19 @@ const tabBarJS = `(function(){
       'Bascule immediatement vers le workspace qui recoit une nouvelle alerte non lue.',
       tabCfg.followAlertsEnabled
     );
-    /* Remove divider from last row */
-    t2.row.style.borderBottom='none';
-    t2.row.style.paddingBottom='0';
-    t2.row.style.marginBottom='26px';
     bx.appendChild(t2.row);
+
+    /* Toggle 3: Notifications systeme */
+    var t3=mkToggleRow(
+      'Notifications systeme',
+      'Affiche une notification native (Windows / macOS) lorsqu\'une nouvelle alerte arrive.',
+      tabCfg.nativeNotificationsEnabled
+    );
+    /* Remove divider from last row */
+    t3.row.style.borderBottom='none';
+    t3.row.style.paddingBottom='0';
+    t3.row.style.marginBottom='26px';
+    bx.appendChild(t3.row);
 
     /* Buttons */
     var bs=mk('div','display:flex;gap:8px;justify-content:flex-end');
@@ -723,11 +748,13 @@ const tabBarJS = `(function(){
       var autoCycleEnabled=t1.get();
       var autoCycleIntervalS=parseInt(sel.value)||30;
       var followAlertsEnabled=t2.get();
-      try{await window.__go_saveTabConfig(autoCycleEnabled,autoCycleIntervalS,followAlertsEnabled);}catch(e){}
+      var nativeNotificationsEnabled=t3.get();
+      try{await window.__go_saveTabConfig(autoCycleEnabled,autoCycleIntervalS,followAlertsEnabled,nativeNotificationsEnabled);}catch(e){}
       /* Update shared tabCfg (read by hover handlers) */
       tabCfg.autoCycleEnabled=autoCycleEnabled;
       tabCfg.autoCycleIntervalS=autoCycleIntervalS;
       tabCfg.followAlertsEnabled=followAlertsEnabled;
+      tabCfg.nativeNotificationsEnabled=nativeNotificationsEnabled;
       ov.remove();
       /* Refresh cycling-button colour */
       var btn=document.getElementById('__ov_cb');
@@ -1405,6 +1432,37 @@ func setupAppBindings(v webview.WebView, av *AppView, cfg *Config) {
 		fmt.Println("[oblitools] bind error __go_reportAlertCount:", err)
 	}
 
+	// __go_nativeNotify: fire an OS-native notification for new alerts (from overlayJS).
+	if err := v.Bind("__go_nativeNotify", func(appOrigin string, title string, body string) {
+		if !cfg.TabConfig.NativeNotificationsEnabled {
+			return
+		}
+		// Rate-limit per origin.
+		notifyThrottleMu.Lock()
+		last := notifyThrottle[appOrigin]
+		now := time.Now()
+		if now.Sub(last) < notifyCooldown {
+			notifyThrottleMu.Unlock()
+			return
+		}
+		notifyThrottle[appOrigin] = now
+		notifyThrottleMu.Unlock()
+
+		// Resolve friendly app name.
+		appName := appOrigin
+		for _, a := range cfg.Apps {
+			if sameOrigin(a.URL, appOrigin) {
+				appName = a.Name
+				break
+			}
+		}
+
+		ntTitle := appName + " — " + title
+		go sendNativeNotification(ntTitle, body, appName)
+	}); err != nil {
+		fmt.Println("[oblitools] bind error __go_nativeNotify:", err)
+	}
+
 	// __go_openInAppTab: cross-app deep-link navigation (from overlayJS intercept).
 	// Instead of navigating the current WebView away, the target app WebView is
 	// navigated to the specific URL and its tab is made active.
@@ -1514,10 +1572,11 @@ func setupAppBindings(v webview.WebView, av *AppView, cfg *Config) {
 	}
 
 	// __go_saveTabConfig: persist auto-cycling preferences (written by tabBarJS).
-	if err := v.Bind("__go_saveTabConfig", func(autoCycleEnabled bool, autoCycleIntervalS float64, followAlertsEnabled bool) {
+	if err := v.Bind("__go_saveTabConfig", func(autoCycleEnabled bool, autoCycleIntervalS float64, followAlertsEnabled bool, nativeNotificationsEnabled bool) {
 		cfg.TabConfig.AutoCycleEnabled = autoCycleEnabled
 		cfg.TabConfig.AutoCycleIntervalS = int(autoCycleIntervalS)
 		cfg.TabConfig.FollowAlertsEnabled = followAlertsEnabled
+		cfg.TabConfig.NativeNotificationsEnabled = nativeNotificationsEnabled
 		if err := saveConfig(cfg); err != nil {
 			fmt.Println("[oblitools] error saving tab config:", err)
 		}
