@@ -1122,7 +1122,13 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
     return '#3b82f6';
   }
   function appName(url){
-    return (url||'').replace(/^https?:\/\//,'').replace(/\/.*/,'');
+    var l=(url||'').toLowerCase();
+    if(l.indexOf('obliance')>=0)return 'Obliance';
+    if(l.indexOf('oblimap')>=0)return 'Oblimap';
+    if(l.indexOf('obliguard')>=0)return 'Obliguard';
+    if(l.indexOf('obliview')>=0)return 'Obliview';
+    var h=(url||'').replace(/^https?:\/\//,'').replace(/\/.*/,'');
+    return h?h.charAt(0).toUpperCase()+h.slice(1):'App';
   }
 
   /* ── Tab bar build ───────────────────────────────────────────────────── */
@@ -1315,9 +1321,20 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
         var dot=document.createElement('span');dot.className='ot-rdot';
         dot.style.background=app.color||'#3b82f6';
         var info=document.createElement('div');info.className='ot-rinfo';
-        var nm=document.createElement('div');nm.className='ot-rname';nm.textContent=app.name;
+        var nmInput=document.createElement('input');
+        nmInput.style.cssText='background:transparent;border:1px solid transparent;border-radius:4px;color:#bbb;font-size:12px;padding:1px 4px;width:100%%;outline:none;transition:border-color .15s';
+        nmInput.value=app.name;
+        nmInput.addEventListener('focus',function(){nmInput.style.borderColor='rgba(255,255,255,.15)';nmInput.style.background='#252538';});
+        nmInput.addEventListener('blur',function(){nmInput.style.borderColor='transparent';nmInput.style.background='transparent';});
+        nmInput.addEventListener('change',(function(eIdx,aIdx){
+          return function(){
+            var v=this.value.trim();if(!v)return;
+            ENVS[eIdx].apps[aIdx].name=v;
+            saveEnvs();buildTabs();
+          };
+        })(ei,ai));
         var ul=document.createElement('div');ul.className='ot-rurl';ul.textContent=app.url;
-        info.appendChild(nm);info.appendChild(ul);
+        info.appendChild(nmInput);info.appendChild(ul);
         var del=document.createElement('button');del.className='ot-del';del.textContent='\u2715';
         del.title='Retirer';
         del.addEventListener('click',(function(eIdx,aIdx){
@@ -1487,15 +1504,25 @@ func setupShellBindings(w webview.WebView, cfg *Config) {
 
 	// __go_saveEnvs: called from the shell manage panel when environments are changed.
 	if err := w.Bind("__go_saveEnvs", func(envs []Environment, activeEnvIdxFloat float64) {
+		// The manage panel is open when this fires — reset the flag so the
+		// position sync loop stops hiding all app windows after the shell
+		// HTML is rebuilt (which destroys the JS-side _panelOpen state).
+		managePanelOpen.Store(false)
+
 		cfg.Environments = envs
 		cfg.ActiveEnvIdx = int(activeEnvIdxFloat)
 		if cfg.ActiveEnvIdx < 0 || cfg.ActiveEnvIdx >= len(cfg.Environments) {
 			cfg.ActiveEnvIdx = 0
 		}
-		// Recompute colours.
+		// Recompute colours and auto-name from URL for entries with bare domain names.
 		for i := range cfg.Environments {
 			for j := range cfg.Environments[i].Apps {
 				cfg.Environments[i].Apps[j].Color = appColorFromURL(cfg.Environments[i].Apps[j].URL)
+				// If the name looks like a raw domain, replace with friendly name.
+				n := cfg.Environments[i].Apps[j].Name
+				if n == "" || n == "App" {
+					cfg.Environments[i].Apps[j].Name = appNameFromURL(cfg.Environments[i].Apps[j].URL)
+				}
 			}
 		}
 		allApps := cfg.AllApps()
@@ -1800,6 +1827,8 @@ func setupAppBindings(v webview.WebView, av *AppView, cfg *Config) {
 		if err := saveConfig(cfg); err != nil {
 			fmt.Println("[oblitools] error saving proposed apps:", err)
 		}
+		// Reset manage panel flag — shell rebuild destroys JS state.
+		managePanelOpen.Store(false)
 		reconcileAppViews(cfg.AllApps(), cfg)
 		shellView.Dispatch(func() {
 			navigateShell(generateTabBarHTML(*cfg, int(activeAppIdx.Load())))
