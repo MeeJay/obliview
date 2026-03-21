@@ -69,7 +69,7 @@ func (av *AppView) setViewAndHWND(v webview.WebView, h uintptr) {
 var (
 	appViewsMu   sync.Mutex
 	allAppViews  []*AppView
-	activeAppIdx atomic.Int32 // index into allAppViews / cfg.Apps
+	activeAppIdx atomic.Int32 // index into allAppViews / cfg.AllApps()
 
 	// shellHWND is the shell window's native handle; set once in main() after
 	// webview.New() returns.  Read-only after that — no mutex needed.
@@ -989,10 +989,13 @@ func navigateShell(html string) {
 	}
 }
 
-// generateTabBarHTML returns the shell tab-bar HTML with apps and active index
-// embedded as JSON so the inline script can build tabs without extra round-trips.
+// generateTabBarHTML returns the shell tab-bar HTML with environments and active
+// indices embedded as JSON so the inline script can build tabs without extra
+// round-trips.  The tab bar groups apps by environment: the active environment
+// shows its individual app tabs, while inactive environments appear as a single
+// collapsed tab (click to switch).
 func generateTabBarHTML(cfg Config, activeIdx int) string {
-	appsJSON, _ := json.Marshal(cfg.Apps)
+	envsJSON, _ := json.Marshal(cfg.Environments)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en" data-oblitools-shell="1">
 <head><meta charset="UTF-8">
@@ -1017,12 +1020,27 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
 .ot-tab:not(.active) .ot-dot{opacity:.35}
 .ot-tab:not(.active):hover .ot-dot{opacity:1}
 .ot-tab.active .ot-name{font-weight:600}
+.ot-env{
+  padding:0 13px;border:none;background:none;cursor:pointer;
+  font-size:12px;white-space:nowrap;flex-shrink:0;
+  display:flex;align-items:center;gap:6px;
+  transition:color .15s;color:#4a4a5a;border-bottom:2px solid transparent;
+  border-left:1px solid rgba(255,255,255,.05)}
+.ot-env:hover{color:#9090a4}
+.ot-env.active-env{color:#888;border-left:none}
+.ot-env .ot-ename{font-weight:500}
+.ot-sep{width:1px;background:rgba(255,255,255,.07);align-self:stretch;margin:8px 0;flex-shrink:0}
 .ot-bdg{
   display:none;background:#ef4444;color:#fff;
   border-radius:8px;font-size:10px;font-weight:700;
   padding:1px 4px;min-width:15px;text-align:center;line-height:1.5;
   align-items:center;justify-content:center}
 .ot-bdg.on{display:inline-flex}
+#ot-add-env{
+  flex-shrink:0;width:32px;height:40px;border:none;background:none;cursor:pointer;
+  color:#3a3a4a;font-size:18px;display:flex;align-items:center;justify-content:center;
+  transition:color .15s;border-left:1px solid rgba(255,255,255,.05)}
+#ot-add-env:hover{color:#9090a4}
 #ot-manage{
   flex-shrink:0;width:36px;height:40px;border:none;background:none;cursor:pointer;
   color:#4a4a5a;font-size:16px;display:flex;align-items:center;justify-content:center;
@@ -1034,80 +1052,143 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
 #ot-overlay.open{display:flex}
 #ot-panel{
   margin:44px 8px 0 0;background:#13141a;border:1px solid rgba(255,255,255,.1);
-  border-radius:12px;padding:16px;width:300px;
+  border-radius:12px;padding:16px;width:340px;max-height:calc(100vh - 60px);overflow-y:auto;
   font-family:system-ui,-apple-system,sans-serif;box-shadow:0 16px 48px rgba(0,0,0,.6)}
 #ot-panel h3{font-size:13px;font-weight:600;color:#ccc;margin:0 0 12px;
   letter-spacing:.04em;text-transform:uppercase}
-.ot-row{display:flex;align-items:center;gap:8px;padding:6px 0;
-  border-bottom:1px solid rgba(255,255,255,.05)}
+.ot-env-card{background:#1a1a28;border:1px solid rgba(255,255,255,.08);border-radius:10px;
+  padding:12px;margin-bottom:10px}
+.ot-env-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.ot-env-name-input{background:#252538;border:1px solid rgba(255,255,255,.1);border-radius:6px;
+  color:#ccc;font-size:13px;font-weight:600;padding:4px 8px;flex:1;min-width:0;outline:none}
+.ot-env-name-input:focus{border-color:#6366f1}
+.ot-env-del{background:none;border:none;color:#444;cursor:pointer;font-size:13px;
+  padding:2px 6px;border-radius:4px;transition:color .15s}
+.ot-env-del:hover{color:#f87171}
+.ot-row{display:flex;align-items:center;gap:8px;padding:5px 0;
+  border-bottom:1px solid rgba(255,255,255,.04)}
 .ot-row:last-child{border-bottom:none}
-.ot-rdot{width:8px;height:8px;border-radius:50%%;flex-shrink:0}
+.ot-rdot{width:7px;height:7px;border-radius:50%%;flex-shrink:0}
 .ot-rinfo{flex:1;min-width:0}
-.ot-rname{font-size:13px;color:#ccc}
+.ot-rname{font-size:12px;color:#bbb}
 .ot-rurl{font-size:10px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ot-del{background:none;border:none;color:#444;cursor:pointer;font-size:14px;
+.ot-del{background:none;border:none;color:#444;cursor:pointer;font-size:13px;
   padding:2px 4px;border-radius:4px;transition:color .15s}
 .ot-del:hover{color:#f87171}
-#ot-add-row{display:flex;gap:6px;margin-top:12px}
-#ot-add-input{flex:1;background:#1e1e28;border:1px solid rgba(255,255,255,.1);
-  border-radius:6px;color:#ccc;font-size:12px;padding:6px 10px;outline:none}
-#ot-add-input:focus{border-color:#3b82f6}
-#ot-add-btn{background:#3b82f6;border:none;border-radius:6px;color:#fff;
-  font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap;transition:opacity .15s}
-#ot-add-btn:hover{opacity:.85}
+.ot-env-add-row{display:flex;gap:6px;margin-top:8px}
+.ot-env-add-input{flex:1;background:#252538;border:1px solid rgba(255,255,255,.08);
+  border-radius:6px;color:#ccc;font-size:11px;padding:5px 8px;outline:none}
+.ot-env-add-input:focus{border-color:#3b82f6}
+.ot-env-add-btn{background:#3b82f6;border:none;border-radius:6px;color:#fff;
+  font-size:11px;padding:5px 10px;cursor:pointer;white-space:nowrap;transition:opacity .15s}
+.ot-env-add-btn:hover{opacity:.85}
+#ot-new-env-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%%;
+  padding:10px;border:1px dashed rgba(255,255,255,.12);border-radius:10px;
+  background:none;color:#666;font-size:12px;cursor:pointer;transition:all .15s;margin-top:4px}
+#ot-new-env-btn:hover{color:#aaa;border-color:rgba(255,255,255,.2)}
 </style>
 </head><body>
 <div id="ot-bar">
   <div id="ot-tabs"></div>
-  <button id="ot-manage" title="Manage apps">&#x2699;</button>
+  <button id="ot-add-env" title="Nouvel environnement">+</button>
+  <button id="ot-manage" title="Gerer les environnements">&#x2699;</button>
 </div>
 <div id="ot-overlay">
   <div id="ot-panel">
-    <h3>Apps</h3>
-    <div id="ot-app-list"></div>
-    <div id="ot-add-row">
-      <input id="ot-add-input" type="url" placeholder="https://my-app.example.com">
-      <button id="ot-add-btn">Add</button>
-    </div>
+    <h3>Environnements</h3>
+    <div id="ot-env-list"></div>
+    <button id="ot-new-env-btn">+ Nouvel environnement</button>
   </div>
 </div>
 <script>
 (function(){
-  var APPS=%s;
-  var activeIdx=%d;
+  var ENVS=%s;
+  var activeEnvIdx=%d;
+  var activeAppIdx=%d;
   var tabs=document.getElementById('ot-tabs');
 
+  /* ── Helpers ─────────────────────────────────────────────────────────── */
+  function globalOffset(envIdx){
+    var o=0;for(var i=0;i<envIdx&&i<ENVS.length;i++)o+=ENVS[i].apps.length;return o;
+  }
+  function allApps(){
+    var a=[];ENVS.forEach(function(e){a=a.concat(e.apps);});return a;
+  }
+  function appColor(url){
+    var l=(url||'').toLowerCase();
+    if(l.indexOf('obliance')>=0)return '#a78bfa';
+    if(l.indexOf('oblimap')>=0)return '#10b981';
+    if(l.indexOf('obliguard')>=0)return '#fb923c';
+    return '#3b82f6';
+  }
+  function appName(url){
+    return (url||'').replace(/^https?:\/\//,'').replace(/\/.*/,'');
+  }
+
+  /* ── Tab bar build ───────────────────────────────────────────────────── */
   function buildTabs(){
     tabs.innerHTML='';
-    APPS.forEach(function(app,i){
-      var col=app.color||'#3b82f6';
-      var btn=document.createElement('button');
-      btn.className='ot-tab'+(i===activeIdx?' active':'');
-      btn.style.borderBottomColor=i===activeIdx?col:'transparent';
-
-      var dot=document.createElement('span');
-      dot.className='ot-dot';dot.style.background=col;
-
-      var nm=document.createElement('span');
-      nm.className='ot-name';nm.textContent=app.name;
-
-      var bdg=document.createElement('span');
-      bdg.className='ot-bdg';bdg.dataset.url=app.url;
-
-      btn.appendChild(dot);btn.appendChild(nm);btn.appendChild(bdg);
-      btn.addEventListener('click',(function(idx){
-        return function(){if(idx!==activeIdx)switchTo(idx);};
-      })(i));
-      tabs.appendChild(btn);
+    ENVS.forEach(function(env,ei){
+      if(ei===activeEnvIdx){
+        /* Active env: always show env name label */
+        var lbl=document.createElement('button');
+        lbl.className='ot-env active-env';
+        var en=document.createElement('span');en.className='ot-ename';en.textContent=env.name;
+        lbl.appendChild(en);
+        tabs.appendChild(lbl);
+        /* Then each app tab */
+        var base=globalOffset(ei);
+        env.apps.forEach(function(app,ai){
+          var gi=base+ai;
+          var col=app.color||'#3b82f6';
+          var btn=document.createElement('button');
+          btn.className='ot-tab'+(gi===activeAppIdx?' active':'');
+          btn.style.borderBottomColor=gi===activeAppIdx?col:'transparent';
+          var dot=document.createElement('span');dot.className='ot-dot';dot.style.background=col;
+          var nm=document.createElement('span');nm.className='ot-name';nm.textContent=app.name;
+          var bdg=document.createElement('span');bdg.className='ot-bdg';bdg.dataset.url=app.url;
+          btn.appendChild(dot);btn.appendChild(nm);btn.appendChild(bdg);
+          btn.addEventListener('click',(function(idx){
+            return function(){if(idx!==activeAppIdx)switchTo(idx);};
+          })(gi));
+          tabs.appendChild(btn);
+        });
+      }else{
+        /* Inactive env: collapsed single tab with separator */
+        var sep=document.createElement('div');sep.className='ot-sep';tabs.appendChild(sep);
+        var ebtn=document.createElement('button');
+        ebtn.className='ot-env';
+        var en2=document.createElement('span');en2.className='ot-ename';en2.textContent=env.name;
+        var ebdg=document.createElement('span');ebdg.className='ot-bdg';ebdg.dataset.env=String(ei);
+        ebtn.appendChild(en2);ebtn.appendChild(ebdg);
+        ebtn.addEventListener('click',(function(idx){
+          return function(){switchEnv(idx);};
+        })(ei));
+        tabs.appendChild(ebtn);
+      }
     });
   }
 
   function setActiveTab(idx){
-    activeIdx=idx;
-    document.querySelectorAll('.ot-tab').forEach(function(b,j){
-      var col=APPS[j]?APPS[j].color||'#6366f1':'#6366f1';
-      b.classList.toggle('active',j===idx);
-      b.style.borderBottomColor=j===idx?col:'transparent';
+    activeAppIdx=idx;
+    /* Recompute which env this belongs to */
+    var off=0;
+    for(var i=0;i<ENVS.length;i++){
+      if(idx<off+ENVS[i].apps.length){
+        if(i!==activeEnvIdx){activeEnvIdx=i;buildTabs();return;}
+        break;
+      }
+      off+=ENVS[i].apps.length;
+    }
+    document.querySelectorAll('.ot-tab').forEach(function(b){
+      var bUrl=b.querySelector('.ot-bdg');
+      if(!bUrl)return;
+      var url=bUrl.dataset.url;
+      var all=allApps();
+      var gi=-1;for(var k=0;k<all.length;k++){if(all[k].url===url){gi=k;break;}}
+      var col=(all[gi]||{}).color||'#3b82f6';
+      b.classList.toggle('active',gi===idx);
+      b.style.borderBottomColor=gi===idx?col:'transparent';
     });
   }
 
@@ -1117,18 +1198,37 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
       window.__go_switchTab(idx).catch(function(){});
   }
 
+  function switchEnv(envIdx){
+    activeEnvIdx=envIdx;
+    var gi=globalOffset(envIdx);
+    activeAppIdx=gi;
+    buildTabs();
+    if(typeof window.__go_switchEnv==='function')
+      window.__go_switchEnv(envIdx).catch(function(){});
+  }
+
   /* Called from Go via Eval when active tab changes (e.g. cross-app nav). */
   window.__ot_setActiveTab=function(idx){setActiveTab(idx);};
 
-  /* Called from Go via Eval after apps list changes (add/remove/propose). */
-  window.__ot_rebuildTabs=function(apps,idx){APPS=apps;activeIdx=idx;buildTabs();};
+  /* Called from Go via Eval after envs change (add/remove/propose). */
+  window.__ot_rebuildEnvs=function(envs,aei,aai){ENVS=envs;activeEnvIdx=aei;activeAppIdx=aai;buildTabs();};
 
   /* Badge update */
   function updateBadges(counts){
-    document.querySelectorAll('.ot-bdg').forEach(function(b){
+    /* Per-app badges */
+    document.querySelectorAll('.ot-bdg[data-url]').forEach(function(b){
       var n=counts[b.dataset.url]||0;
       b.textContent=n>9?'9+':String(n);
       b.classList.toggle('on',n>0);
+    });
+    /* Per-env collapsed badges (sum of all apps in that env) */
+    document.querySelectorAll('.ot-bdg[data-env]').forEach(function(b){
+      var ei=parseInt(b.dataset.env);
+      if(isNaN(ei)||!ENVS[ei])return;
+      var total=0;
+      ENVS[ei].apps.forEach(function(a){total+=(counts[a.url]||0);});
+      b.textContent=total>9?'9+':String(total);
+      b.classList.toggle('on',total>0);
     });
   }
   setInterval(function(){
@@ -1150,15 +1250,13 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
     },600);
   });
 
-  /* Manage overlay — app windows are native OS windows that sit on top of the
-     shell WebView, so we must hide them before opening the overlay and restore
-     them on close, otherwise the panel would be completely occluded. */
+  /* ── Manage overlay ──────────────────────────────────────────────────── */
   var overlay=document.getElementById('ot-overlay');
   var _panelOpen=false;
   function openPanel(){
     if(_panelOpen)return;
     _panelOpen=true;
-    refreshList();
+    refreshEnvList();
     overlay.classList.add('open');
     if(typeof window.__go_showManagePanel==='function')
       window.__go_showManagePanel().catch(function(){});
@@ -1178,57 +1276,115 @@ html,body{width:100%%;height:100%%;overflow:hidden;background:#060610;font-famil
     if(e.target===overlay)closePanel();
   });
 
-  function refreshList(){
-    var list=document.getElementById('ot-app-list');
+  function refreshEnvList(){
+    var list=document.getElementById('ot-env-list');
     list.innerHTML='';
-    APPS.forEach(function(app,i){
-      var row=document.createElement('div');row.className='ot-row';
-      var dot=document.createElement('span');dot.className='ot-rdot';
-      dot.style.background=app.color||'#3b82f6';
-      var info=document.createElement('div');info.className='ot-rinfo';
-      var nm=document.createElement('div');nm.className='ot-rname';nm.textContent=app.name;
-      var ul=document.createElement('div');ul.className='ot-rurl';ul.textContent=app.url;
-      info.appendChild(nm);info.appendChild(ul);
-      var del=document.createElement('button');del.className='ot-del';del.textContent='\u2715';
-      del.title='Remove';
-      del.addEventListener('click',(function(idx){
+    ENVS.forEach(function(env,ei){
+      var card=document.createElement('div');card.className='ot-env-card';
+
+      /* Header: env name input + delete */
+      var hdr=document.createElement('div');hdr.className='ot-env-hdr';
+      var nameInput=document.createElement('input');nameInput.className='ot-env-name-input';
+      nameInput.value=env.name;nameInput.placeholder='Nom';
+      nameInput.addEventListener('change',(function(idx){
         return function(){
-          APPS.splice(idx,1);
-          if(typeof window.__go_saveApps==='function')
-            window.__go_saveApps(APPS.slice()).catch(function(){});
-          refreshList();
+          ENVS[idx].name=this.value.trim()||'Env';
+          saveEnvs();buildTabs();
         };
-      })(i));
-      row.appendChild(dot);row.appendChild(info);row.appendChild(del);
-      list.appendChild(row);
+      })(ei));
+      hdr.appendChild(nameInput);
+
+      if(ENVS.length>1){
+        var edel=document.createElement('button');edel.className='ot-env-del';
+        edel.textContent='\u2715';edel.title='Supprimer cet environnement';
+        edel.addEventListener('click',(function(idx){
+          return function(){
+            ENVS.splice(idx,1);
+            if(activeEnvIdx>=ENVS.length)activeEnvIdx=Math.max(0,ENVS.length-1);
+            activeAppIdx=globalOffset(activeEnvIdx);
+            saveEnvs();buildTabs();refreshEnvList();
+          };
+        })(ei));
+        hdr.appendChild(edel);
+      }
+      card.appendChild(hdr);
+
+      /* App list */
+      env.apps.forEach(function(app,ai){
+        var row=document.createElement('div');row.className='ot-row';
+        var dot=document.createElement('span');dot.className='ot-rdot';
+        dot.style.background=app.color||'#3b82f6';
+        var info=document.createElement('div');info.className='ot-rinfo';
+        var nm=document.createElement('div');nm.className='ot-rname';nm.textContent=app.name;
+        var ul=document.createElement('div');ul.className='ot-rurl';ul.textContent=app.url;
+        info.appendChild(nm);info.appendChild(ul);
+        var del=document.createElement('button');del.className='ot-del';del.textContent='\u2715';
+        del.title='Retirer';
+        del.addEventListener('click',(function(eIdx,aIdx){
+          return function(){
+            ENVS[eIdx].apps.splice(aIdx,1);
+            if(ENVS[eIdx].apps.length===0)ENVS.splice(eIdx,1);
+            if(activeEnvIdx>=ENVS.length)activeEnvIdx=Math.max(0,ENVS.length-1);
+            activeAppIdx=globalOffset(activeEnvIdx);
+            saveEnvs();buildTabs();refreshEnvList();
+          };
+        })(ei,ai));
+        row.appendChild(dot);row.appendChild(info);row.appendChild(del);
+        card.appendChild(row);
+      });
+
+      /* Add app to this env */
+      var addRow=document.createElement('div');addRow.className='ot-env-add-row';
+      var addInput=document.createElement('input');addInput.className='ot-env-add-input';
+      addInput.type='url';addInput.placeholder='https://app.example.com';
+      var addBtn=document.createElement('button');addBtn.className='ot-env-add-btn';
+      addBtn.textContent='Ajouter';
+      function doAddApp(eIdx,inp){
+        var u=inp.value.trim();if(!u)return;
+        if(!/^https?:\/\//i.test(u))u='https://'+u;
+        try{new URL(u);}catch(e){return;}
+        ENVS[eIdx].apps.push({name:appName(u),url:u,color:appColor(u),lastUrl:''});
+        inp.value='';
+        saveEnvs();buildTabs();refreshEnvList();
+      }
+      addBtn.addEventListener('click',(function(eIdx,inp){
+        return function(){doAddApp(eIdx,inp);};
+      })(ei,addInput));
+      addInput.addEventListener('keydown',(function(eIdx,inp){
+        return function(e){if(e.key==='Enter')doAddApp(eIdx,inp);};
+      })(ei,addInput));
+      addRow.appendChild(addInput);addRow.appendChild(addBtn);
+      card.appendChild(addRow);
+
+      list.appendChild(card);
     });
   }
 
-  document.getElementById('ot-add-btn').addEventListener('click',function(){
-    var u=document.getElementById('ot-add-input').value.trim();
-    if(!u)return;
-    if(!/^https?:\/\//i.test(u))u='https://'+u;
-    try{new URL(u);}catch(e){return;}
-    var lower=u.toLowerCase();
-    var name=u.replace(/^https?:\/\//,'').replace(/\/.*/,'');
-    var color='#3b82f6';
-    if(lower.indexOf('obliance')>=0)color='#a78bfa';
-    else if(lower.indexOf('oblimap')>=0)color='#10b981';
-    else if(lower.indexOf('obliguard')>=0)color='#fb923c';
-    APPS.push({name:name,url:u,color:color,lastUrl:''});
-    if(typeof window.__go_saveApps==='function')
-      window.__go_saveApps(APPS.slice()).catch(function(){});
-    document.getElementById('ot-add-input').value='';
-    refreshList();
+  /* New environment button */
+  function addNewEnv(){
+    var name=prompt('Nom du nouvel environnement :');
+    if(!name||!name.trim())return;
+    var url=prompt('URL de la premiere app :');
+    if(!url||!url.trim())return;
+    if(!/^https?:\/\//i.test(url))url='https://'+url;
+    try{new URL(url);}catch(e){return;}
+    ENVS.push({name:name.trim(),apps:[{name:appName(url),url:url,color:appColor(url),lastUrl:''}]});
+    saveEnvs();buildTabs();refreshEnvList();
+  }
+  document.getElementById('ot-new-env-btn').addEventListener('click',addNewEnv);
+  document.getElementById('ot-add-env').addEventListener('click',function(e){
+    e.stopPropagation();addNewEnv();
   });
-  document.getElementById('ot-add-input').addEventListener('keydown',function(e){
-    if(e.key==='Enter')document.getElementById('ot-add-btn').click();
-  });
+
+  function saveEnvs(){
+    if(typeof window.__go_saveEnvs==='function')
+      window.__go_saveEnvs(ENVS,activeEnvIdx).catch(function(){});
+  }
 
   buildTabs();
 })();
 </script>
-</body></html>`, string(appsJSON), activeIdx)
+</body></html>`, string(envsJSON), cfg.ActiveEnvIdx, activeIdx)
 }
 
 // ── Localhost shell HTTP server ───────────────────────────────────────────────
@@ -1256,12 +1412,14 @@ func startLocalServer() {
 
 func setupShellBindings(w webview.WebView, cfg *Config) {
 	// __go_saveURL: called from the setup page when user enters a server URL.
-	// Seeds the first app entry and transitions the shell to the tab-bar view.
+	// Seeds the first environment+app and transitions the shell to the tab-bar view.
 	if err := w.Bind("__go_saveURL", func(rawURL string) {
 		rawURL = strings.TrimRight(rawURL, "/")
 		cfg.URL = rawURL
+		// Check if already known in any environment.
+		allApps := cfg.AllApps()
 		found := false
-		for _, a := range cfg.Apps {
+		for _, a := range allApps {
 			if sameOrigin(a.URL, rawURL) {
 				found = true
 				break
@@ -1273,12 +1431,17 @@ func setupShellBindings(w webview.WebView, cfg *Config) {
 				URL:   rawURL,
 				Color: appColorFromURL(rawURL),
 			}
-			cfg.Apps = append([]AppEntry{entry}, cfg.Apps...)
+			if len(cfg.Environments) == 0 {
+				cfg.Environments = []Environment{{Name: "Default", Apps: []AppEntry{entry}}}
+			} else {
+				cfg.Environments[0].Apps = append([]AppEntry{entry}, cfg.Environments[0].Apps...)
+			}
 		}
+		cfg.ActiveEnvIdx = 0
 		if err := saveConfig(cfg); err != nil {
 			fmt.Println("[oblitools] error saving config:", err)
 		}
-		reconcileAppViews(cfg.Apps, cfg)
+		reconcileAppViews(cfg.AllApps(), cfg)
 		w.Dispatch(func() {
 			navigateShell(generateTabBarHTML(*cfg, int(activeAppIdx.Load())))
 		})
@@ -1300,9 +1463,13 @@ func setupShellBindings(w webview.WebView, cfg *Config) {
 			return
 		}
 		activeAppIdx.Store(int32(idx))
-		if idx < len(cfg.Apps) {
-			cfg.URL = cfg.Apps[idx].URL
+		allApps := cfg.AllApps()
+		if idx < len(allApps) {
+			cfg.URL = allApps[idx].URL
 		}
+		// Update active env to match.
+		envIdx, _ := cfg.EnvOfGlobalIdx(idx)
+		cfg.ActiveEnvIdx = envIdx
 		for i, av := range views {
 			h := av.getHWND()
 			if h == 0 {
@@ -1318,27 +1485,85 @@ func setupShellBindings(w webview.WebView, cfg *Config) {
 		fmt.Println("[oblitools] bind error __go_switchTab:", err)
 	}
 
-	// __go_saveApps: called from the shell manage dialog when apps are added/removed.
-	if err := w.Bind("__go_saveApps", func(apps []AppEntry) {
-		cfg.Apps = apps
-		if len(apps) > 0 {
-			cfg.URL = apps[0].URL
+	// __go_saveEnvs: called from the shell manage panel when environments are changed.
+	if err := w.Bind("__go_saveEnvs", func(envs []Environment, activeEnvIdxFloat float64) {
+		cfg.Environments = envs
+		cfg.ActiveEnvIdx = int(activeEnvIdxFloat)
+		if cfg.ActiveEnvIdx < 0 || cfg.ActiveEnvIdx >= len(cfg.Environments) {
+			cfg.ActiveEnvIdx = 0
+		}
+		// Recompute colours.
+		for i := range cfg.Environments {
+			for j := range cfg.Environments[i].Apps {
+				cfg.Environments[i].Apps[j].Color = appColorFromURL(cfg.Environments[i].Apps[j].URL)
+			}
+		}
+		allApps := cfg.AllApps()
+		if len(allApps) > 0 {
+			// Keep cfg.URL pointing at active env's first app.
+			env := cfg.ActiveEnv()
+			if env != nil && len(env.Apps) > 0 {
+				cfg.URL = env.Apps[0].URL
+			} else {
+				cfg.URL = allApps[0].URL
+			}
 		} else {
 			cfg.URL = ""
 		}
 		if err := saveConfig(cfg); err != nil {
-			fmt.Println("[oblitools] error saving apps:", err)
+			fmt.Println("[oblitools] error saving envs:", err)
 		}
-		reconcileAppViews(apps, cfg)
+		reconcileAppViews(allApps, cfg)
+		// Recompute activeAppIdx to first app of active env.
+		newActive := cfg.GlobalAppIndex(cfg.ActiveEnvIdx, 0)
+		activeAppIdx.Store(int32(newActive))
 		w.Dispatch(func() {
-			if len(cfg.Apps) == 0 {
+			if len(allApps) == 0 {
 				w.SetHtml(setupHTML)
 			} else {
-				navigateShell(generateTabBarHTML(*cfg, int(activeAppIdx.Load())))
+				navigateShell(generateTabBarHTML(*cfg, newActive))
 			}
 		})
 	}); err != nil {
-		fmt.Println("[oblitools] bind error __go_saveApps:", err)
+		fmt.Println("[oblitools] bind error __go_saveEnvs:", err)
+	}
+
+	// __go_switchEnv: called when user clicks a collapsed environment tab.
+	if err := w.Bind("__go_switchEnv", func(envIdxFloat float64) {
+		envIdx := int(envIdxFloat)
+		if envIdx < 0 || envIdx >= len(cfg.Environments) {
+			return
+		}
+		cfg.ActiveEnvIdx = envIdx
+		// Switch to first app of the target environment.
+		globalIdx := cfg.GlobalAppIndex(envIdx, 0)
+		activeAppIdx.Store(int32(globalIdx))
+		env := cfg.ActiveEnv()
+		if env != nil && len(env.Apps) > 0 {
+			cfg.URL = env.Apps[0].URL
+		}
+		// Show/hide windows.
+		appViewsMu.Lock()
+		views := make([]*AppView, len(allAppViews))
+		copy(views, allAppViews)
+		appViewsMu.Unlock()
+		for i, av := range views {
+			h := av.getHWND()
+			if h == 0 {
+				continue
+			}
+			if i == globalIdx {
+				positionAppWindow(h, shellHWND, 0, 0, true)
+			} else {
+				hideAppWindow(h)
+			}
+		}
+		// Rebuild tab bar with new active env.
+		shellView.Dispatch(func() {
+			navigateShell(generateTabBarHTML(*cfg, globalIdx))
+		})
+	}); err != nil {
+		fmt.Println("[oblitools] bind error __go_switchEnv:", err)
 	}
 
 	// __go_getAlertCounts: returns badge-cache snapshot for the tab-bar JS.
@@ -1410,13 +1635,15 @@ func setupShellBindings(w webview.WebView, cfg *Config) {
 func setupAppBindings(v webview.WebView, av *AppView, cfg *Config) {
 	// __go_saveAppLastURL: track last-visited page path per app (from overlayJS).
 	if err := v.Bind("__go_saveAppLastURL", func(appOrigin, path string) {
-		for i := range cfg.Apps {
-			if sameOrigin(cfg.Apps[i].URL, appOrigin) {
-				cfg.Apps[i].LastURL = path
-				if err := saveConfig(cfg); err != nil {
-					fmt.Println("[oblitools] error saving last url:", err)
+		for i := range cfg.Environments {
+			for j := range cfg.Environments[i].Apps {
+				if sameOrigin(cfg.Environments[i].Apps[j].URL, appOrigin) {
+					cfg.Environments[i].Apps[j].LastURL = path
+					if err := saveConfig(cfg); err != nil {
+						fmt.Println("[oblitools] error saving last url:", err)
+					}
+					return
 				}
-				break
 			}
 		}
 	}); err != nil {
@@ -1450,7 +1677,7 @@ func setupAppBindings(v webview.WebView, av *AppView, cfg *Config) {
 
 		// Resolve friendly app name.
 		appName := appOrigin
-		for _, a := range cfg.Apps {
+		for _, a := range cfg.AllApps() {
 			if sameOrigin(a.URL, appOrigin) {
 				appName = a.Name
 				break
@@ -1496,9 +1723,12 @@ func setupAppBindings(v webview.WebView, av *AppView, cfg *Config) {
 
 		// Switch active tab.
 		activeAppIdx.Store(int32(targetIdx))
-		if targetIdx < len(cfg.Apps) {
-			cfg.URL = cfg.Apps[targetIdx].URL
+		allApps := cfg.AllApps()
+		if targetIdx < len(allApps) {
+			cfg.URL = allApps[targetIdx].URL
 		}
+		envIdx, _ := cfg.EnvOfGlobalIdx(targetIdx)
+		cfg.ActiveEnvIdx = envIdx
 
 		// Update shell tab-bar highlight.
 		shellView.Dispatch(func() {
@@ -1527,23 +1757,37 @@ func setupAppBindings(v webview.WebView, av *AppView, cfg *Config) {
 	}
 
 	// __go_proposeLinkedApps: manifest auto-discovery from overlayJS.
-	// Merges proposed apps into cfg.Apps without replacing existing entries.
+	// Merges proposed apps into the same environment as the calling app.
 	if err := v.Bind("__go_proposeLinkedApps", func(proposed []AppEntry) {
 		appViewsMu.Lock()
+
+		// Find which environment the calling app belongs to.
+		callerOrigin := originOf(av.Entry.URL)
+		targetEnvIdx := 0
+		for i, env := range cfg.Environments {
+			for _, a := range env.Apps {
+				if originOf(a.URL) == callerOrigin {
+					targetEnvIdx = i
+					break
+				}
+			}
+		}
+
+		allApps := cfg.AllApps()
 		changed := false
 		for _, p := range proposed {
 			found := false
-			for _, e := range cfg.Apps {
+			for _, e := range allApps {
 				if sameOrigin(e.URL, p.URL) {
 					found = true
 					break
 				}
 			}
-			if !found {
-				cfg.Apps = append(cfg.Apps, AppEntry{
+			if !found && targetEnvIdx < len(cfg.Environments) {
+				cfg.Environments[targetEnvIdx].Apps = append(cfg.Environments[targetEnvIdx].Apps, AppEntry{
 					Name:  p.Name,
 					URL:   p.URL,
-					Color: p.Color,
+					Color: appColorFromURL(p.URL),
 				})
 				changed = true
 			}
@@ -1556,7 +1800,7 @@ func setupAppBindings(v webview.WebView, av *AppView, cfg *Config) {
 		if err := saveConfig(cfg); err != nil {
 			fmt.Println("[oblitools] error saving proposed apps:", err)
 		}
-		reconcileAppViews(cfg.Apps, cfg)
+		reconcileAppViews(cfg.AllApps(), cfg)
 		shellView.Dispatch(func() {
 			navigateShell(generateTabBarHTML(*cfg, int(activeAppIdx.Load())))
 		})
@@ -1823,8 +2067,9 @@ func main() {
 	}
 
 	// Find the initial active app index (matches cfg.URL).
+	allApps := cfg.AllApps()
 	initialActive := 0
-	for i, app := range cfg.Apps {
+	for i, app := range allApps {
 		if sameOrigin(app.URL, cfg.URL) {
 			initialActive = i
 			break
@@ -1854,7 +2099,7 @@ func main() {
 	// Launch one WebView goroutine per configured app (all start hidden except
 	// the initially active one; the position sync loop manages visibility).
 	appViewsMu.Lock()
-	for _, app := range cfg.Apps {
+	for _, app := range allApps {
 		av := &AppView{Entry: app}
 		allAppViews = append(allAppViews, av)
 		go launchAppView(av, cfg)
@@ -1865,7 +2110,7 @@ func main() {
 	go startPositionSyncLoop()
 
 	// Navigate the shell to the setup page (no apps) or the tab bar.
-	if len(cfg.Apps) == 0 {
+	if len(allApps) == 0 {
 		w.SetHtml(setupHTML)
 	} else {
 		navigateShell(generateTabBarHTML(*cfg, initialActive))
