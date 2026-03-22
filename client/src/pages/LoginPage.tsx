@@ -27,41 +27,56 @@ export function LoginPage() {
   const [mfaTab, setMfaTab] = useState<'totp' | 'email'>('totp');
   const [mfaCode, setMfaCode] = useState('');
   const [mfaLoading, setMfaLoading] = useState(false);
-  const [ssoUnavailable, setSsoUnavailable] = useState(false);
+
+  // SSO state: 'checking' = initial check, 'redirecting' = going to Obligate,
+  // 'unavailable' = Obligate down (show local login + warning), 'local' = no Obligate configured
+  const [ssoState, setSsoState] = useState<'checking' | 'redirecting' | 'unavailable' | 'local'>(ssoFailed ? 'unavailable' : 'checking');
+
+  const checkSso = () => {
+    return fetch('/api/auth/sso-config')
+      .then(r => r.json())
+      .then((data: { success: boolean; data?: { obligateUrl: string | null; obligateReachable: boolean; obligateEnabled: boolean } }) => {
+        if (data.success && data.data?.obligateEnabled && data.data.obligateUrl) {
+          if (data.data.obligateReachable) {
+            setSsoState('redirecting');
+            window.location.href = '/auth/sso-redirect';
+            return 'redirected';
+          }
+          setSsoState('unavailable');
+          return 'unavailable';
+        }
+        setSsoState('local');
+        return 'local';
+      })
+      .catch(() => { setSsoState('local'); return 'local'; });
+  };
 
   useEffect(() => {
     fetch('/health')
       .then((r) => r.json())
       .then((data: { version?: string }) => setServerVersion(data.version ?? null))
-      .catch(() => { /* ignore */ });
+      .catch(() => {});
 
-    // First check if we already have a valid session (e.g. just came back from SSO callback).
-    // If yes, go straight to dashboard — do NOT redirect to Obligate again (infinite loop).
+    // Check existing session first
     fetch('/api/auth/me', { credentials: 'include' })
       .then(r => r.json())
       .then((d: { success?: boolean }) => {
-        if (d.success) {
-          // Already authenticated — go to dashboard
-          navigate('/', { replace: true });
-          return;
-        }
-        // No session — check Obligate SSO and redirect if configured + reachable
-        // Skip if we just came back from a failed SSO attempt (prevents infinite loop)
-        if (ssoFailed) return;
-        return fetch('/api/auth/sso-config')
-          .then(r => r.json())
-          .then((data: { success: boolean; data?: { obligateUrl: string | null; obligateReachable: boolean; obligateEnabled: boolean } }) => {
-            if (data.success && data.data?.obligateEnabled && data.data.obligateUrl) {
-              if (data.data.obligateReachable) {
-                window.location.href = '/auth/sso-redirect';
-              } else {
-                setSsoUnavailable(true);
-              }
-            }
-          });
+        if (d.success) { navigate('/', { replace: true }); return; }
+        // No session — check Obligate unless we just failed
+        if (!ssoFailed) checkSso();
+        else setSsoState('unavailable');
       })
-      .catch(() => { /* ignore — show local login */ });
+      .catch(() => { if (!ssoFailed) checkSso(); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll Obligate every 60s when unavailable — redirect as soon as it comes back
+  useEffect(() => {
+    if (ssoState !== 'unavailable') return;
+    const interval = setInterval(() => {
+      checkSso();
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [ssoState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -113,6 +128,20 @@ export function LoginPage() {
     }
   };
 
+  // While checking or redirecting, show a minimal loading screen — never flash the local login form
+  if (ssoState === 'checking' || ssoState === 'redirecting') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg-primary">
+        <div className="text-center">
+          <img src="/logo.webp" alt="Obliview" className="mx-auto h-16 w-16 mb-3 animate-pulse" />
+          <p className="text-sm text-text-secondary">
+            {ssoState === 'redirecting' ? t('login.ssoRedirecting', 'Redirecting to login...') : t('login.ssoChecking', 'Checking authentication...')}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg-primary p-4">
       <div className="w-full max-w-sm space-y-8 relative">
@@ -122,7 +151,7 @@ export function LoginPage() {
           <p className="mt-2 text-sm text-text-secondary">{t('login.title')}</p>
         </div>
 
-        {ssoUnavailable && (
+        {ssoState === 'unavailable' && (
           <div className="bg-status-pending-bg border border-status-pending/30 rounded-lg p-3 text-sm text-status-pending">
             {t('login.ssoUnavailable', 'Centralized login (Obligate) is unavailable. Using local authentication.')}
           </div>
