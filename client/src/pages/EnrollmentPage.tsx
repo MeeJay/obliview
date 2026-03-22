@@ -388,7 +388,7 @@ export function EnrollmentPage() {
 
   // SSO users (foreign_source='obligate') skip the password step — their auth is managed by Obligate
   const isObligateUser = user?.foreignSource === 'obligate';
-  const STEPS = isObligateUser ? ALL_STEPS.filter(s => s !== 'password') : ALL_STEPS;
+  const STEPS = isObligateUser ? ALL_STEPS.filter(s => s !== 'password' && s !== 'security' && s !== 'profile' && s !== 'alerts') : ALL_STEPS;
 
   const [step, setStep] = useState<Step>('language');
   const [data, setData] = useState<EnrollData>({
@@ -448,7 +448,10 @@ export function EnrollmentPage() {
     e?.preventDefault();
     setError('');
 
-    if (step === 'language') { setStep('profile'); return; }
+    if (step === 'language') {
+      if (isObligateUser) { setStep('appearance'); return; }
+      setStep('profile'); return;
+    }
 
     if (step === 'profile') {
       if (!data.email) { setEmailError(t('enrollment.profile.emailRequired')); return; }
@@ -460,7 +463,10 @@ export function EnrollmentPage() {
     }
 
     if (step === 'alerts') { setStep('appearance'); return; }
-    if (step === 'appearance') { setStep(isObligateUser ? 'security' : 'password'); return; }
+    if (step === 'appearance') {
+      if (isObligateUser) { await completeEnrollment(); return; }
+      setStep('password'); return;
+    }
 
     if (step === 'password') {
       // If user entered something, validate and set the password
@@ -526,8 +532,9 @@ export function EnrollmentPage() {
     if (idx > 0) setStep(STEPS[idx - 1]);
   };
 
+  const isLastStep = step === STEPS[STEPS.length - 1];
   const isNextDisabled = step === 'security' && totpSetup && !totpSkipped && totpCode.length !== 6;
-  const nextLabel = step === 'security' ? t('enrollment.complete') : t('common.next');
+  const nextLabel = isLastStep ? t('enrollment.complete') : t('common.next');
 
   return (
     <div className="min-h-screen bg-bg-primary flex flex-col items-center justify-center p-4">
