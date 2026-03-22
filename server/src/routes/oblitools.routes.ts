@@ -2,7 +2,7 @@
  * ObliTools manifest endpoint.
  * Called by the ObliTools desktop app after login to discover:
  *   - This app's display name, color, and SSO token path
- *   - All configured linked apps (URL + identity) for tab creation
+ *   - All configured linked apps via Obligate (for tab creation)
  *
  * GET /api/oblitools/manifest   (requires session auth)
  */
@@ -10,37 +10,27 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { appConfigService } from '../services/appConfig.service';
+import { obligateService } from '../services/obligate.service';
 
 const router = Router();
 
 const SELF = { name: 'Obliview', color: '#6366f1' };
 
-const LINKED: Record<string, { name: string; color: string }> = {
-  obliguard: { name: 'Obliguard', color: '#f97316' },
-  oblimap:   { name: 'Oblimap',   color: '#10b981' },
-  obliance:  { name: 'Obliance',  color: '#8b5cf6' },
-};
-
 router.get('/manifest', requireAuth, async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const [og, om, oa] = await Promise.all([
-      appConfigService.getObliguardRaw(),
-      appConfigService.getOblimapRaw(),
-      appConfigService.getOblianceRaw(),
-    ]);
+    // Fetch linked apps from Obligate (replaces hardcoded obliguard/oblimap/obliance configs)
+    const apps = await obligateService.getConnectedApps();
 
     type LinkedApp = { name: string; url: string; color: string };
-    const linkedApps: LinkedApp[] = [];
-    if (og?.url) linkedApps.push({ ...LINKED.obliguard, url: og.url });
-    if (om?.url) linkedApps.push({ ...LINKED.oblimap,   url: om.url });
-    if (oa?.url) linkedApps.push({ ...LINKED.obliance,  url: oa.url });
+    const linkedApps: LinkedApp[] = apps
+      .filter(a => a.appType !== 'obliview')
+      .map(a => ({ name: a.name, url: a.baseUrl, color: a.color ?? '#6366f1' }));
 
     res.json({
       success: true,
       data: {
         ...SELF,
-        ssoPath: '/api/sso/generate-token',
+        ssoPath: '/auth/sso-redirect',
         linkedApps,
       },
     });

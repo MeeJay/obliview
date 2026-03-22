@@ -8,7 +8,6 @@ import { LoginPage } from '@/pages/LoginPage';
 import { EnrollmentPage } from '@/pages/EnrollmentPage';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
-import { ForeignAuthPage } from '@/pages/ForeignAuthPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { MonitorDetailPage } from '@/pages/MonitorDetailPage';
 import { MonitorEditPage } from '@/pages/MonitorEditPage';
@@ -43,7 +42,6 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/auth/foreign" element={<ForeignAuthPage />} />
 
         {/* Protected routes */}
         <Route element={<ProtectedRoute />}>

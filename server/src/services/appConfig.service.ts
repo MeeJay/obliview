@@ -1,11 +1,8 @@
 import { db } from '../db';
-import type { AppConfig, AgentGlobalConfig, NotificationTypeConfig, ObliguardConfig, OblimapConfig, OblianceConfig, ObligateConfig } from '@obliview/shared';
+import type { AppConfig, AgentGlobalConfig, NotificationTypeConfig, ObligateConfig } from '@obliview/shared';
 import { DEFAULT_NOTIFICATION_TYPES } from '@obliview/shared';
 
 const AGENT_GLOBAL_CONFIG_KEY = 'agent_global_config';
-const OBLIGUARD_CONFIG_KEY    = 'obliguard_config';
-const OBLIMAP_CONFIG_KEY      = 'oblimap_config';
-const OBLIANCE_CONFIG_KEY     = 'obliance_config';
 const OBLIGATE_CONFIG_KEY     = 'obligate_config';
 
 export const appConfigService = {
@@ -35,112 +32,9 @@ export const appConfigService = {
       allow_2fa: map['allow_2fa'] === 'true',
       force_2fa: map['force_2fa'] === 'true',
       otp_smtp_server_id: map['otp_smtp_server_id'] ? parseInt(map['otp_smtp_server_id'], 10) : null,
-      obliguard_url: parseUrl(OBLIGUARD_CONFIG_KEY),
-      oblimap_url:   parseUrl(OBLIMAP_CONFIG_KEY),
-      obliance_url:  parseUrl(OBLIANCE_CONFIG_KEY),
-      obligate_url:        parseUrl(OBLIGATE_CONFIG_KEY),
-      obligate_enabled:    map['obligate_enabled'] === 'true',
-      enable_foreign_sso:  map['enable_foreign_sso']  === 'true',
-      enable_oblimap_sso:  map['enable_oblimap_sso']  === 'true',
-      enable_obliance_sso: map['enable_obliance_sso'] === 'true',
+      obligate_url:     parseUrl(OBLIGATE_CONFIG_KEY),
+      obligate_enabled: map['obligate_enabled'] === 'true',
     };
-  },
-
-  /** Get Obliguard integration config — returns public shape (no raw key) */
-  async getObliguardConfig(): Promise<ObliguardConfig> {
-    const raw = await this.get(OBLIGUARD_CONFIG_KEY);
-    if (!raw) return { url: null, apiKeySet: false };
-    try {
-      const cfg = JSON.parse(raw) as { url?: string; apiKey?: string };
-      return { url: cfg.url ?? null, apiKeySet: !!cfg.apiKey };
-    } catch { return { url: null, apiKeySet: false }; }
-  },
-
-  /** Get Obliguard integration config raw (includes API key — for internal use only) */
-  async getObliguardRaw(): Promise<{ url: string | null; apiKey: string | null }> {
-    const raw = await this.get(OBLIGUARD_CONFIG_KEY);
-    if (!raw) return { url: null, apiKey: null };
-    try {
-      const cfg = JSON.parse(raw) as { url?: string; apiKey?: string };
-      return { url: cfg.url ?? null, apiKey: cfg.apiKey ?? null };
-    } catch { return { url: null, apiKey: null }; }
-  },
-
-  /** Patch Obliguard integration config (partial update) */
-  async patchObliguardConfig(patch: { url?: string | null; apiKey?: string | null }): Promise<ObliguardConfig> {
-    const existing = await this.getObliguardRaw();
-    const merged = {
-      url: 'url' in patch ? (patch.url ?? null) : existing.url,
-      apiKey: ('apiKey' in patch && patch.apiKey) ? patch.apiKey : existing.apiKey,
-    };
-    await this.set(OBLIGUARD_CONFIG_KEY, JSON.stringify(merged));
-    return { url: merged.url, apiKeySet: !!merged.apiKey };
-  },
-
-  // ── Oblimap integration ─────────────────────────────────────────────────
-
-  /** Get Oblimap integration config — returns public shape (no raw key) */
-  async getOblimapConfig(): Promise<OblimapConfig> {
-    const raw = await this.get(OBLIMAP_CONFIG_KEY);
-    if (!raw) return { url: null, apiKeySet: false };
-    try {
-      const cfg = JSON.parse(raw) as { url?: string; apiKey?: string };
-      return { url: cfg.url ?? null, apiKeySet: !!cfg.apiKey };
-    } catch { return { url: null, apiKeySet: false }; }
-  },
-
-  /** Get Oblimap integration config raw (includes API key — for internal use only) */
-  async getOblimapRaw(): Promise<{ url: string | null; apiKey: string | null }> {
-    const raw = await this.get(OBLIMAP_CONFIG_KEY);
-    if (!raw) return { url: null, apiKey: null };
-    try {
-      const cfg = JSON.parse(raw) as { url?: string; apiKey?: string };
-      return { url: cfg.url ?? null, apiKey: cfg.apiKey ?? null };
-    } catch { return { url: null, apiKey: null }; }
-  },
-
-  /** Patch Oblimap integration config (partial update) */
-  async patchOblimapConfig(patch: { url?: string | null; apiKey?: string | null }): Promise<OblimapConfig> {
-    const existing = await this.getOblimapRaw();
-    const merged = {
-      url: 'url' in patch ? (patch.url ?? null) : existing.url,
-      apiKey: ('apiKey' in patch && patch.apiKey) ? patch.apiKey : existing.apiKey,
-    };
-    await this.set(OBLIMAP_CONFIG_KEY, JSON.stringify(merged));
-    return { url: merged.url, apiKeySet: !!merged.apiKey };
-  },
-
-  // ── Obliance integration ────────────────────────────────────────────────
-
-  /** Get Obliance integration config — returns public shape (no raw key) */
-  async getOblianceConfig(): Promise<OblianceConfig> {
-    const raw = await this.get(OBLIANCE_CONFIG_KEY);
-    if (!raw) return { url: null, apiKeySet: false };
-    try {
-      const cfg = JSON.parse(raw) as { url?: string; apiKey?: string };
-      return { url: cfg.url ?? null, apiKeySet: !!cfg.apiKey };
-    } catch { return { url: null, apiKeySet: false }; }
-  },
-
-  /** Get Obliance integration config raw (includes API key — for internal use only) */
-  async getOblianceRaw(): Promise<{ url: string | null; apiKey: string | null }> {
-    const raw = await this.get(OBLIANCE_CONFIG_KEY);
-    if (!raw) return { url: null, apiKey: null };
-    try {
-      const cfg = JSON.parse(raw) as { url?: string; apiKey?: string };
-      return { url: cfg.url ?? null, apiKey: cfg.apiKey ?? null };
-    } catch { return { url: null, apiKey: null }; }
-  },
-
-  /** Patch Obliance integration config (partial update) */
-  async patchOblianceConfig(patch: { url?: string | null; apiKey?: string | null }): Promise<OblianceConfig> {
-    const existing = await this.getOblianceRaw();
-    const merged = {
-      url: 'url' in patch ? (patch.url ?? null) : existing.url,
-      apiKey: ('apiKey' in patch && patch.apiKey) ? patch.apiKey : existing.apiKey,
-    };
-    await this.set(OBLIANCE_CONFIG_KEY, JSON.stringify(merged));
-    return { url: merged.url, apiKeySet: !!merged.apiKey };
   },
 
   // ── Obligate SSO gateway ───────────────────────────────────────────────

@@ -19,10 +19,6 @@ import appConfigRoutes from './appConfig.routes';
 import twoFactorRoutes from './twoFactor.routes';
 import maintenanceRoutes from './maintenance.routes';
 import { liveAlertRouter } from './liveAlert.routes';
-import obliguardRoutes from './obliguard.routes';
-import oblimapRoutes from './oblimap.routes';
-import oblianceRoutes from './obliance.routes';
-import ssoRoutes from './sso.routes';
 import oblitoolsRoutes from './oblitools.routes';
 import obligateCallbackRoutes from './obligateCallback.routes';
 import systemRoutes from './system.routes';
@@ -35,10 +31,6 @@ router.use('/heartbeat', heartbeatRoutes); // push monitors (no session)
 router.use('/agent', agentRoutes);          // agent push (authenticated via API key)
 router.use('/admin/config', appConfigRoutes);
 router.use('/system', systemRoutes);         // system info / about (admin only, no tenant required)
-router.use('/obliguard', obliguardRoutes);   // /link (Bearer auth) + /proxy-link (session auth)
-router.use('/oblimap', oblimapRoutes);       // /link (Bearer auth) + /proxy-link (session auth)
-router.use('/obliance', oblianceRoutes);    // /link (Bearer auth) + /proxy-link (session auth)
-router.use('/sso', ssoRoutes);              // cross-app SSO (generate-token, validate-token, exchange, users)
 router.use('/oblitools', oblitoolsRoutes);  // ObliTools desktop manifest (auth required)
 router.use('/auth', obligateCallbackRoutes); // Obligate sso-config + connected-apps (callback is mounted in app.ts at /auth)
 router.use('/profile/2fa', twoFactorRoutes); // must be before /profile

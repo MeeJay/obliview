@@ -1,13 +1,12 @@
 import { LogOut, Menu, Download, ArrowLeftRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/store/authStore';
 import { useUiStore } from '@/store/uiStore';
 import { useSocketStore } from '@/store/socketStore';
 import { useMonitorStore } from '@/store/monitorStore';
 import { appConfigApi } from '@/api/appConfig.api';
-import { ssoApi } from '@/api/sso.api';
 import { Button } from '@/components/common/Button';
 import { NotificationCenter } from './NotificationCenter';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -23,18 +22,20 @@ export function Header() {
   const { toggleSidebar, sidebarFloating } = useUiStore();
   const { status: socketStatus } = useSocketStore();
   const monitors = useMonitorStore((s) => s.monitors);
-  const [obliguardUrl, setObliguardUrl] = useState<string | null>(null);
-  const [oblimapUrl, setOblimapUrl]     = useState<string | null>(null);
-  const [oblianceUrl, setOblianceUrl]   = useState<string | null>(null);
-  const [, startSsoTransition] = useTransition();
+  const [connectedApps, setConnectedApps] = useState<Array<{ appType: string; name: string; baseUrl: string }>>([]);
+  const [obligateUrl, setObligateUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    appConfigApi.getConfig()
-      .then((cfg) => {
-        setObliguardUrl(cfg.obliguard_url ?? null);
-        setOblimapUrl(cfg.oblimap_url ?? null);
-        setOblianceUrl(cfg.obliance_url ?? null);
+    // Fetch connected apps from Obligate via server proxy
+    fetch('/api/auth/connected-apps', { credentials: 'include' })
+      .then(r => r.json())
+      .then((d: { success: boolean; data?: Array<{ appType: string; name: string; baseUrl: string }> }) => {
+        if (d.success && d.data) setConnectedApps(d.data.filter(a => a.appType !== 'obliview'));
       })
+      .catch(() => {});
+    // Get Obligate URL for cross-app redirect
+    appConfigApi.getConfig()
+      .then(cfg => setObligateUrl(cfg.obligate_url ?? null))
       .catch(() => {});
   }, []);
 
@@ -75,70 +76,24 @@ export function Header() {
         {/* Tenant switcher — hidden when single-tenant (tenants.length <= 1) */}
         <TenantSwitcher />
 
-        {/* Cross-app switch buttons — hidden inside the native Obli.tools desktop app */}
-        {obliguardUrl && !isNativeApp && (
+        {/* Cross-app switch buttons via Obligate — hidden inside the native Obli.tools desktop app */}
+        {obligateUrl && !isNativeApp && connectedApps.map(app => (
           <button
+            key={app.appType}
             type="button"
             onClick={() => {
-              startSsoTransition(() => {
-                ssoApi.generateSwitchToken()
-                  .then((token) => {
-                    const from = window.location.origin;
-                    window.location.href = `${obliguardUrl}/auth/foreign?token=${encodeURIComponent(token)}&from=${encodeURIComponent(from)}&source=obliview`;
-                  })
-                  .catch(() => { window.location.href = obliguardUrl; });
-              });
+              // Redirect through Obligate authorize — existing session → instant switch
+              const callbackUrl = `${app.baseUrl}/auth/callback`;
+              window.location.href = `/auth/sso-redirect?target=${encodeURIComponent(callbackUrl)}`;
             }}
             className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold border transition-all
-              text-[#fb923c] bg-[#431407]/40 border-[#c2410c]/50
-              hover:text-white hover:bg-[#431407]/60 hover:border-[#ea580c]"
+              text-accent bg-accent/10 border-accent/30
+              hover:text-white hover:bg-accent/20 hover:border-accent/60"
           >
             <ArrowLeftRight size={12} />
-            Obliguard
+            {app.name}
           </button>
-        )}
-        {oblimapUrl && !isNativeApp && (
-          <button
-            type="button"
-            onClick={() => {
-              startSsoTransition(() => {
-                ssoApi.generateSwitchToken()
-                  .then((token) => {
-                    const from = window.location.origin;
-                    window.location.href = `${oblimapUrl}/auth/foreign?token=${encodeURIComponent(token)}&from=${encodeURIComponent(from)}&source=obliview`;
-                  })
-                  .catch(() => { window.location.href = oblimapUrl; });
-              });
-            }}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold border transition-all
-              text-[#10b981] bg-[#022c22]/40 border-[#047857]/50
-              hover:text-white hover:bg-[#022c22]/60 hover:border-[#059669]"
-          >
-            <ArrowLeftRight size={12} />
-            Oblimap
-          </button>
-        )}
-        {oblianceUrl && !isNativeApp && (
-          <button
-            type="button"
-            onClick={() => {
-              startSsoTransition(() => {
-                ssoApi.generateSwitchToken()
-                  .then((token) => {
-                    const from = window.location.origin;
-                    window.location.href = `${oblianceUrl}/auth/foreign?token=${encodeURIComponent(token)}&from=${encodeURIComponent(from)}&source=obliview`;
-                  })
-                  .catch(() => { window.location.href = oblianceUrl; });
-              });
-            }}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold border transition-all
-              text-[#a78bfa] bg-[#2e1065]/40 border-[#7c3aed]/50
-              hover:text-white hover:bg-[#2e1065]/60 hover:border-[#8b5cf6]"
-          >
-            <ArrowLeftRight size={12} />
-            Obliance
-          </button>
-        )}
+        ))}
       </div>
 
       <div className="flex items-center gap-3">

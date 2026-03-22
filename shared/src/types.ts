@@ -430,42 +430,12 @@ export interface AppConfig {
   allow_2fa: boolean;
   force_2fa: boolean;
   otp_smtp_server_id: number | null;
-  /** Obliguard server URL — null when not configured. API key is never exposed via getAll(). */
-  obliguard_url: string | null;
-  /** Oblimap server URL — null when not configured. */
-  oblimap_url: string | null;
-  /** Obliance server URL — null when not configured. */
-  obliance_url: string | null;
   /** Obligate SSO gateway URL — null when not configured. */
   obligate_url: string | null;
   /** Whether Obligate SSO is enabled. */
   obligate_enabled: boolean;
-  /** Whether cross-app SSO (foreign user login) is enabled. */
-  enable_foreign_sso: boolean;
-  enable_oblimap_sso: boolean;
-  enable_obliance_sso: boolean;
 }
 
-/** Obliguard integration config — returned to clients (never exposes raw apiKey). */
-export interface ObliguardConfig {
-  url: string | null;
-  apiKey?: string;
-  apiKeySet?: boolean;
-}
-
-/** Oblimap integration config — returned to clients (never exposes raw apiKey). */
-export interface OblimapConfig {
-  url: string | null;
-  apiKey?: string;
-  apiKeySet?: boolean;
-}
-
-/** Obliance integration config — returned to clients (never exposes raw apiKey). */
-export interface OblianceConfig {
-  url: string | null;
-  apiKey?: string;
-  apiKeySet?: boolean;
-}
 
 /**
  * Global agent defaults stored in app_config as JSON under key "agent_global_config".
