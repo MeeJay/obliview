@@ -1,11 +1,12 @@
 import { db } from '../db';
-import type { AppConfig, AgentGlobalConfig, NotificationTypeConfig, ObliguardConfig, OblimapConfig, OblianceConfig } from '@obliview/shared';
+import type { AppConfig, AgentGlobalConfig, NotificationTypeConfig, ObliguardConfig, OblimapConfig, OblianceConfig, ObligateConfig } from '@obliview/shared';
 import { DEFAULT_NOTIFICATION_TYPES } from '@obliview/shared';
 
 const AGENT_GLOBAL_CONFIG_KEY = 'agent_global_config';
 const OBLIGUARD_CONFIG_KEY    = 'obliguard_config';
 const OBLIMAP_CONFIG_KEY      = 'oblimap_config';
 const OBLIANCE_CONFIG_KEY     = 'obliance_config';
+const OBLIGATE_CONFIG_KEY     = 'obligate_config';
 
 export const appConfigService = {
   async get(key: string): Promise<string | null> {
@@ -37,6 +38,8 @@ export const appConfigService = {
       obliguard_url: parseUrl(OBLIGUARD_CONFIG_KEY),
       oblimap_url:   parseUrl(OBLIMAP_CONFIG_KEY),
       obliance_url:  parseUrl(OBLIANCE_CONFIG_KEY),
+      obligate_url:        parseUrl(OBLIGATE_CONFIG_KEY),
+      obligate_enabled:    map['obligate_enabled'] === 'true',
       enable_foreign_sso:  map['enable_foreign_sso']  === 'true',
       enable_oblimap_sso:  map['enable_oblimap_sso']  === 'true',
       enable_obliance_sso: map['enable_obliance_sso'] === 'true',
@@ -138,6 +141,41 @@ export const appConfigService = {
     };
     await this.set(OBLIANCE_CONFIG_KEY, JSON.stringify(merged));
     return { url: merged.url, apiKeySet: !!merged.apiKey };
+  },
+
+  // ── Obligate SSO gateway ───────────────────────────────────────────────
+
+  async getObligateConfig(): Promise<ObligateConfig> {
+    const raw = await this.get(OBLIGATE_CONFIG_KEY);
+    const enabled = await this.get('obligate_enabled');
+    if (!raw) return { url: null, apiKeySet: false, enabled: enabled === 'true' };
+    try {
+      const cfg = JSON.parse(raw) as { url?: string; apiKey?: string };
+      return { url: cfg.url ?? null, apiKeySet: !!cfg.apiKey, enabled: enabled === 'true' };
+    } catch { return { url: null, apiKeySet: false, enabled: enabled === 'true' }; }
+  },
+
+  async getObligateRaw(): Promise<{ url: string | null; apiKey: string | null }> {
+    const raw = await this.get(OBLIGATE_CONFIG_KEY);
+    if (!raw) return { url: null, apiKey: null };
+    try {
+      const cfg = JSON.parse(raw) as { url?: string; apiKey?: string };
+      return { url: cfg.url ?? null, apiKey: cfg.apiKey ?? null };
+    } catch { return { url: null, apiKey: null }; }
+  },
+
+  async patchObligateConfig(patch: { url?: string | null; apiKey?: string | null; enabled?: boolean }): Promise<ObligateConfig> {
+    const existing = await this.getObligateRaw();
+    const merged = {
+      url: 'url' in patch ? (patch.url ?? null) : existing.url,
+      apiKey: ('apiKey' in patch && patch.apiKey) ? patch.apiKey : existing.apiKey,
+    };
+    await this.set(OBLIGATE_CONFIG_KEY, JSON.stringify(merged));
+    if ('enabled' in patch) {
+      await this.set('obligate_enabled', patch.enabled ? 'true' : 'false');
+    }
+    const enabled = await this.get('obligate_enabled');
+    return { url: merged.url, apiKeySet: !!merged.apiKey, enabled: enabled === 'true' };
   },
 
   /** Get global agent defaults from app_config */

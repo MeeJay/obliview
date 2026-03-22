@@ -23,12 +23,28 @@ export function LoginPage() {
   const [mfaTab, setMfaTab] = useState<'totp' | 'email'>('totp');
   const [mfaCode, setMfaCode] = useState('');
   const [mfaLoading, setMfaLoading] = useState(false);
+  const [ssoUnavailable, setSsoUnavailable] = useState(false);
 
   useEffect(() => {
     fetch('/health')
       .then((r) => r.json())
       .then((data: { version?: string }) => setServerVersion(data.version ?? null))
       .catch(() => { /* ignore */ });
+
+    // Check Obligate SSO — redirect if configured and reachable
+    fetch('/api/auth/sso-config')
+      .then(r => r.json())
+      .then((data: { success: boolean; data?: { obligateUrl: string | null; obligateReachable: boolean; obligateEnabled: boolean } }) => {
+        if (data.success && data.data?.obligateEnabled && data.data.obligateUrl) {
+          if (data.data.obligateReachable) {
+            // Redirect to server-side SSO initiation (server knows the API key)
+            window.location.href = '/auth/sso-redirect';
+          } else {
+            setSsoUnavailable(true);
+          }
+        }
+      })
+      .catch(() => { /* ignore — show local login */ });
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -89,6 +105,12 @@ export function LoginPage() {
           <h1 className="text-3xl font-bold text-text-primary">Obliview</h1>
           <p className="mt-2 text-sm text-text-secondary">{t('login.title')}</p>
         </div>
+
+        {ssoUnavailable && (
+          <div className="bg-status-pending-bg border border-status-pending/30 rounded-lg p-3 text-sm text-status-pending">
+            {t('login.ssoUnavailable', 'Centralized login (Obligate) is unavailable. Using local authentication.')}
+          </div>
+        )}
 
         {step === 'credentials' ? (
           <form onSubmit={handleSubmit} className="space-y-6 rounded-lg border border-border bg-bg-secondary p-6">

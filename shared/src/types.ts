@@ -418,6 +418,14 @@ export interface SmtpServer {
 // ============================================
 // App Config types
 // ============================================
+
+/** Obligate SSO gateway config — returned to clients (never exposes raw apiKey). */
+export interface ObligateConfig {
+  url: string | null;
+  apiKeySet: boolean;
+  enabled: boolean;
+}
+
 export interface AppConfig {
   allow_2fa: boolean;
   force_2fa: boolean;
@@ -428,6 +436,10 @@ export interface AppConfig {
   oblimap_url: string | null;
   /** Obliance server URL — null when not configured. */
   obliance_url: string | null;
+  /** Obligate SSO gateway URL — null when not configured. */
+  obligate_url: string | null;
+  /** Whether Obligate SSO is enabled. */
+  obligate_enabled: boolean;
   /** Whether cross-app SSO (foreign user login) is enabled. */
   enable_foreign_sso: boolean;
   enable_oblimap_sso: boolean;
