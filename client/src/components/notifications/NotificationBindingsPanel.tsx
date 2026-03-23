@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Bell, BellOff, ArrowDown, Check, Ban } from 'lucide-react';
 import { notificationsApi } from '@/api/notifications.api';
 import { cn } from '@/utils/cn';
+import { anonymize } from '@/utils/anonymize';
 import type { NotificationChannel, OverrideMode } from '@obliview/shared';
 import toast from 'react-hot-toast';
 
@@ -223,7 +224,7 @@ export function NotificationBindingsPanel({ scope, scopeId, title }: Notificatio
                       'text-sm truncate block',
                       isDirectExclude ? 'text-text-muted line-through' : 'text-text-primary',
                     )}>
-                      {channel.name}
+                      {anonymize(channel.name)}
                     </span>
                     <span className="text-xs text-text-muted">{channel.type}</span>
                     {isInherited && resolvedEntry && (

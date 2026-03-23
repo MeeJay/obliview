@@ -172,7 +172,7 @@ function ApproveModal({
       <div className="w-full max-w-sm rounded-xl border border-border bg-bg-primary shadow-2xl p-6">
         <h2 className="text-base font-semibold text-text-primary mb-1">{t('agents.approveTitle')}</h2>
         <p className="text-sm text-text-muted mb-4">
-          {t('agents.approveDesc', { hostname: device.hostname })}
+          {t('agents.approveDesc', { hostname: anonymize(device.hostname) })}
         </p>
 
         <div className="space-y-1 mb-4">
@@ -251,7 +251,7 @@ function EditAgentModal({
       <div className="w-full max-w-sm rounded-xl border border-border bg-bg-primary shadow-2xl p-6">
         <h2 className="text-base font-semibold text-text-primary mb-1">{t('agents.editAgent')}</h2>
         <p className="text-xs text-text-muted mb-5">
-          {t('agents.hostnameInfo', { hostname: device.hostname })}
+          {t('agents.hostnameInfo', { hostname: anonymize(device.hostname) })}
         </p>
 
         <div className="space-y-4">

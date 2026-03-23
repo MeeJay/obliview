@@ -185,11 +185,11 @@ export function MonitorDetailPage() {
               {(monitor.type === 'http' || monitor.type === 'json_api') && monitor.url && ` - ${anonymizeUrl(monitor.url)}`}
               {(['ping', 'tcp', 'dns', 'ssl', 'smtp'].includes(monitor.type)) && monitor.hostname && ` - ${anonymize(monitor.hostname)}${monitor.port ? `:${monitor.port}` : ''}`}
               {monitor.type === 'docker' && monitor.dockerContainerName && ` - ${anonymize(monitor.dockerContainerName)}`}
-              {monitor.type === 'game_server' && monitor.gameHost && ` - ${monitor.gameHost}${monitor.gamePort ? `:${monitor.gamePort}` : ''}`}
+              {monitor.type === 'game_server' && monitor.gameHost && ` - ${anonymize(monitor.gameHost)}${monitor.gamePort ? `:${monitor.gamePort}` : ''}`}
               {monitor.type === 'push' && ' - Push'}
-              {monitor.type === 'script' && monitor.scriptCommand && ` - ${monitor.scriptCommand}`}
-              {monitor.type === 'browser' && monitor.browserUrl && ` - ${monitor.browserUrl}`}
-              {monitor.type === 'value_watcher' && monitor.valueWatcherUrl && ` - ${monitor.valueWatcherUrl}`}
+              {monitor.type === 'script' && monitor.scriptCommand && ` - ${anonymize(monitor.scriptCommand)}`}
+              {monitor.type === 'browser' && monitor.browserUrl && ` - ${anonymizeUrl(monitor.browserUrl)}`}
+              {monitor.type === 'value_watcher' && monitor.valueWatcherUrl && ` - ${anonymizeUrl(monitor.valueWatcherUrl)}`}
             </p>
           </div>
         </div>

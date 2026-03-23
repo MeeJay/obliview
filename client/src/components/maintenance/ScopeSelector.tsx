@@ -6,6 +6,7 @@ import { groupsApi } from '@/api/groups.api';
 import { monitorsApi } from '@/api/monitors.api';
 import { agentApi } from '@/api/agent.api';
 import { cn } from '@/utils/cn';
+import { anonymize } from '@/utils/anonymize';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -511,7 +512,7 @@ export function ScopeSelector({ defaultScopeType, defaultScopeId, onChange }: Pr
                     )}
                   >
                     <Folder size={12} className={state !== 'none' ? 'text-blue-400 shrink-0' : 'text-text-muted shrink-0'} />
-                    <span className="flex-1 truncate font-medium">{g.name}</span>
+                    <span className="flex-1 truncate font-medium">{anonymize(g.name)}</span>
                     {state === 'partial' && (
                       <span className="text-[9px] text-blue-400/70 font-bold shrink-0 ml-1">{t('maintenance.partialLabel')}</span>
                     )}
@@ -542,7 +543,7 @@ export function ScopeSelector({ defaultScopeType, defaultScopeId, onChange }: Pr
                         )}
                       >
                         <Monitor size={10} className="shrink-0" />
-                        <span className="truncate">{m.name}</span>
+                        <span className="truncate">{anonymize(m.name)}</span>
                       </button>
                     );
                   })}
@@ -572,7 +573,7 @@ export function ScopeSelector({ defaultScopeType, defaultScopeId, onChange }: Pr
                     )}
                   >
                     <Monitor size={10} className="shrink-0" />
-                    <span className="truncate">{m.name}</span>
+                    <span className="truncate">{anonymize(m.name)}</span>
                   </button>
                 ))}
               </>
@@ -621,7 +622,7 @@ export function ScopeSelector({ defaultScopeType, defaultScopeId, onChange }: Pr
                     )}
                   >
                     <Folder size={12} className={state !== 'none' ? 'text-blue-400 shrink-0' : 'text-text-muted shrink-0'} />
-                    <span className="flex-1 truncate font-medium">{g.name}</span>
+                    <span className="flex-1 truncate font-medium">{anonymize(g.name)}</span>
                     {state === 'partial' && (
                       <span className="text-[9px] text-blue-400/70 font-bold shrink-0 ml-1">{t('maintenance.partialLabel')}</span>
                     )}
@@ -651,7 +652,7 @@ export function ScopeSelector({ defaultScopeType, defaultScopeId, onChange }: Pr
                         )}
                       >
                         <Server size={10} className="shrink-0" />
-                        <span className="truncate">{a.name ?? a.hostname}</span>
+                        <span className="truncate">{anonymize(a.name ?? a.hostname)}</span>
                       </button>
                     );
                   })}
@@ -681,7 +682,7 @@ export function ScopeSelector({ defaultScopeType, defaultScopeId, onChange }: Pr
                     )}
                   >
                     <Server size={10} className="shrink-0" />
-                    <span className="truncate">{a.name ?? a.hostname}</span>
+                    <span className="truncate">{anonymize(a.name ?? a.hostname)}</span>
                   </button>
                 ))}
               </>

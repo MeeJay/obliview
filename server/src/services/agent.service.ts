@@ -338,8 +338,10 @@ export const agentService = {
     return rowToDevice(row, groupConfig, groupThresholds);
   },
 
-  async getDeviceByUuid(uuid: string): Promise<AgentDevice | null> {
-    const row = await db('agent_devices').where({ uuid }).first() as AgentDeviceRow | undefined;
+  async getDeviceByUuid(uuid: string, tenantId?: number): Promise<AgentDevice | null> {
+    const query = db('agent_devices').where({ uuid });
+    if (tenantId !== undefined) query.where({ tenant_id: tenantId });
+    const row = await query.first() as AgentDeviceRow | undefined;
     if (!row) return null;
     const [groupConfig, groupThresholds] = await Promise.all([
       row.group_id ? resolveGroupAgentConfig(row.group_id) : null,
@@ -639,7 +641,7 @@ export const agentService = {
     clientIp: string,
     payload: AgentPushPayload,
   ): Promise<AgentPushResponse> {
-    let device = await this.getDeviceByUuid(deviceUuid);
+    let device = await this.getDeviceByUuid(deviceUuid, tenantId);
 
     if (!device) {
       // Register new device as pending

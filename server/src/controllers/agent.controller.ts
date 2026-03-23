@@ -52,7 +52,7 @@ export async function notifyingUpdate(req: Request, res: Response): Promise<void
       return;
     }
     // Identify device — must belong to the authenticated API key
-    const device = await agentService.getDeviceByUuid(deviceUuid);
+    const device = await agentService.getDeviceByUuid(deviceUuid, agentTenantId);
     if (!device || device.apiKeyId !== agentApiKeyId) {
       res.status(404).json({ error: 'Device not found' });
       return;

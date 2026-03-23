@@ -3,6 +3,7 @@ import { ChevronRight, Folder, FolderOpen } from 'lucide-react';
 import { useDroppable } from '@dnd-kit/core';
 import type { GroupTreeNode } from '@obliview/shared';
 import { cn } from '@/utils/cn';
+import { anonymize } from '@/utils/anonymize';
 import { useMonitorStore } from '@/store/monitorStore';
 import { useGroupStore } from '@/store/groupStore';
 import { DraggableMonitor } from './GroupTree';
@@ -149,7 +150,7 @@ export function GroupNode({ node, depth = 0, selectedGroupId, onSelectGroup, dnd
               }}
               className="flex items-center gap-1.5 flex-1 min-w-0 py-1.5 pr-2"
             >
-              <span className="truncate flex-1 text-left">{node.name}</span>
+              <span className="truncate flex-1 text-left">{anonymize(node.name)}</span>
 
               {/* Value total for value_watcher-only groups, otherwise uptime % */}
               {isValueWatcherOnly && valueTotal !== null ? (

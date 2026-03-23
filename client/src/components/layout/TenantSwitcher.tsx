@@ -7,6 +7,7 @@ import { useMonitorStore } from '@/store/monitorStore';
 import { disconnectSocket, connectSocket } from '@/socket/socketClient';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/utils/cn';
+import { anonymize } from '@/utils/anonymize';
 
 export function TenantSwitcher() {
   const { t } = useTranslation();
@@ -77,7 +78,7 @@ export function TenantSwitcher() {
         )}
       >
         <Building2 size={13} className="text-accent shrink-0" />
-        <span className="max-w-[120px] truncate font-medium">{currentTenant?.name ?? '…'}</span>
+        <span className="max-w-[120px] truncate font-medium">{anonymize(currentTenant?.name) || '…'}</span>
         <ChevronDown size={12} className={cn('text-text-muted transition-transform', open && 'rotate-180')} />
       </button>
 
@@ -105,7 +106,7 @@ export function TenantSwitcher() {
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <Building2 size={13} className="shrink-0 text-text-muted" />
-                  <span className="truncate">{tenant.name}</span>
+                  <span className="truncate">{anonymize(tenant.name)}</span>
                   {tenant.role === 'admin' && (
                     <span className="shrink-0 text-[10px] text-text-muted bg-bg-tertiary rounded px-1 py-0.5">
                       {t('tenant.roleAdmin')}

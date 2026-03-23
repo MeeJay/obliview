@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/cn';
-import { anonymize } from '@/utils/anonymize';
+import { anonymize, anonymizeUsername } from '@/utils/anonymize';
 import { useAuthStore } from '@/store/authStore';
 import { useMonitorStore } from '@/store/monitorStore';
 import { useGroupStore } from '@/store/groupStore';
@@ -377,7 +377,7 @@ export function Sidebar() {
                 )}
               >
                 <Server size={14} className="shrink-0 text-text-muted" />
-                <span className="truncate flex-1">{group.name}</span>
+                <span className="truncate flex-1">{anonymize(group.name)}</span>
                 {groupDevices.length > 0 && (
                   <span className="text-xs text-text-muted">{groupDevices.length}</span>
                 )}
@@ -622,7 +622,7 @@ export function Sidebar() {
           )}
         >
           <UserCircle size={18} />
-          <span className="truncate flex-1">{user?.displayName || (user?.username?.startsWith('og_') ? user.username.slice(3) : user?.username)}</span>
+          <span className="truncate flex-1">{anonymizeUsername(user?.displayName || (user?.username?.startsWith('og_') ? user.username.slice(3) : user?.username))}</span>
         </Link>
         <button
           onClick={() => {

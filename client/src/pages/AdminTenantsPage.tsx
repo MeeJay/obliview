@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Building2, Plus, Pencil, Trash2, Users, X, Check } from 'lucide-react';
 import type { Tenant } from '@obliview/shared';
 import { Button } from '@/components/common/Button';
+import { anonymize, anonymizeUsername } from '@/utils/anonymize';
 import apiClient from '@/api/client';
 
 interface TenantMember {
@@ -155,9 +156,9 @@ function MembersPanel({ tenantId, onClose }: { tenantId: number; onClose: () => 
             members.map((m) => (
               <div key={m.id} className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <span className="text-sm text-text-primary font-medium">{m.username}</span>
+                  <span className="text-sm text-text-primary font-medium">{anonymizeUsername(m.username)}</span>
                   {m.display_name && (
-                    <span className="ml-1 text-xs text-text-muted">({m.display_name})</span>
+                    <span className="ml-1 text-xs text-text-muted">({anonymize(m.display_name)})</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -292,7 +293,7 @@ export function AdminTenantsPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <Building2 size={14} className="text-accent shrink-0" />
-                      <span className="text-sm font-semibold text-text-primary">{tenant.name}</span>
+                      <span className="text-sm font-semibold text-text-primary">{anonymize(tenant.name)}</span>
                       {tenant.id === 1 && (
                         <span className="text-[10px] bg-accent/15 text-accent rounded px-1.5 py-0.5">
                           {t('tenant.default')}
@@ -300,7 +301,7 @@ export function AdminTenantsPage() {
                       )}
                     </div>
                     <p className="text-xs text-text-muted mt-0.5">
-                      /{tenant.slug} · {t('tenant.createdAt')} {new Date(tenant.createdAt).toLocaleDateString()}
+                      /{anonymize(tenant.slug)} · {t('tenant.createdAt')} {new Date(tenant.createdAt).toLocaleDateString()}
                     </p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">

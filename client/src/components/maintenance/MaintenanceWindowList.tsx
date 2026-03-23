@@ -5,6 +5,7 @@ import type { MaintenanceWindow, MaintenanceScopeType, NotificationChannel } fro
 import { maintenanceApi } from '@/api/maintenance.api';
 import { MaintenanceWindowModal } from './MaintenanceWindowModal';
 import { cn } from '@/utils/cn';
+import { anonymize } from '@/utils/anonymize';
 
 // ScopeOption kept only for the optional backward-compat prop
 interface ScopeOption {
@@ -121,7 +122,7 @@ function WindowRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={cn('text-sm font-medium truncate', isDisabled || expired ? 'text-text-muted line-through' : 'text-text-primary')}>
-            {w.name}
+            {anonymize(w.name)}
           </span>
           {isDisabled && (
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20 shrink-0">
@@ -426,7 +427,7 @@ function FlatList({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className={cn('text-sm font-medium truncate', exp ? 'text-text-muted line-through' : 'text-text-primary')}>
-              {w.name}
+              {anonymize(w.name)}
             </span>
             <StatusPip active={w.active} isActiveNow={w.isActiveNow} expired={exp} />
             {w.scopeType === 'global' && (

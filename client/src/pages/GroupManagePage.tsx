@@ -23,6 +23,7 @@ import { NotificationBindingsPanel } from '@/components/notifications/Notificati
 import { MaintenanceWindowList } from '@/components/maintenance/MaintenanceWindowList';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { cn } from '@/utils/cn';
+import { anonymize } from '@/utils/anonymize';
 import toast from 'react-hot-toast';
 
 interface GroupFormData {
@@ -544,7 +545,7 @@ export function GroupManagePage() {
                 <div className="flex items-center gap-2 rounded-md bg-bg-secondary border border-accent px-3 py-2 text-sm shadow-lg">
                   <GripVertical size={14} className="text-accent" />
                   <FolderTree size={16} className="text-accent" />
-                  <span className="text-text-primary">{draggingNode.name}</span>
+                  <span className="text-text-primary">{anonymize(draggingNode.name)}</span>
                 </div>
               )}
             </DragOverlay>
@@ -609,7 +610,7 @@ function DraggableGroupRow({
         ? <Server size={16} className="text-text-muted shrink-0" />
         : <FolderTree size={16} className="text-accent shrink-0" />
       }
-      <span className="flex-1 text-sm text-text-primary">{node.name}</span>
+      <span className="flex-1 text-sm text-text-primary">{anonymize(node.name)}</span>
       {node.kind === 'agent' && (
         <span className="inline-flex items-center gap-0.5 rounded-full bg-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-text-muted">
           <Server size={9} />

@@ -7,6 +7,7 @@ import { applyTheme, loadSavedTheme, type AppTheme } from '@/utils/theme';
 import { appConfigApi } from '@/api/appConfig.api';
 import { twoFactorApi, type TwoFactorStatus } from '@/api/twoFactor.api';
 import { useAuthStore } from '@/store/authStore';
+import { anonymizeUsername } from '@/utils/anonymize';
 import { useLiveAlertsStore } from '@/store/liveAlertsStore';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -201,7 +202,7 @@ export function ProfilePage() {
             <label className="block text-sm font-medium text-text-secondary">{t('profile.usernameLabel')}</label>
             <div className="flex items-center gap-2">
               <p className="text-sm text-text-primary font-mono bg-bg-tertiary rounded-md px-3 py-2 flex-1">
-                {sessionUser?.username}
+                {anonymizeUsername(sessionUser?.username)}
               </p>
               {sessionUser?.foreignSource && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-[#1e1b4b]/60 border border-[#4338ca]/40 px-2 py-1 text-[10px] font-medium text-[#a5b4fc] shrink-0">

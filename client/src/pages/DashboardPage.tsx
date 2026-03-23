@@ -18,6 +18,7 @@ import { PeekedGrid } from '@/components/dashboard/PeekedGrid';
 import { MonitorCardTile } from '@/components/dashboard/MonitorCardTile';
 import { AgentCardTile } from '@/components/dashboard/AgentCardTile';
 import { cn } from '@/utils/cn';
+import { anonymize } from '@/utils/anonymize';
 import toast from 'react-hot-toast';
 
 
@@ -586,7 +587,7 @@ function GroupSection({
   return (
     <DashboardSection
       icon={groupIcon}
-      title={node.name}
+      title={anonymize(node.name)}
       depth={depth}
       borderColor="border-accent/20"
       collapsed={!expanded}

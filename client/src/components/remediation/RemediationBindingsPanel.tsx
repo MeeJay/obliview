@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { anonymize } from '@/utils/anonymize';
 import { ShieldCheck, Plus, X, ArrowDown, ArrowUp, AlertTriangle, Loader2 } from 'lucide-react';
 import type {
   RemediationAction,
@@ -676,7 +677,7 @@ export function RemediationBindingsPanel({
                 {/* Action info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-sm text-text-primary">{action.name}</span>
+                    <span className="text-sm text-text-primary">{anonymize(action.name)}</span>
                     <span className="text-[10px] bg-bg-tertiary text-text-muted px-1.5 py-0.5 rounded-full">
                       {ACTION_TYPE_SHORT[action.type] ?? action.type}
                     </span>

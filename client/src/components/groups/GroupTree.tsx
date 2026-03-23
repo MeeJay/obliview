@@ -16,6 +16,7 @@ import { useAuthStore } from '@/store/authStore';
 import { GroupNode } from './GroupNode';
 import { MonitorStatusBadge } from '@/components/monitors/MonitorStatusBadge';
 import { cn } from '@/utils/cn';
+import { anonymize } from '@/utils/anonymize';
 import { estimateMaxBars } from '@/components/monitors/HeartbeatBar';
 import { monitorsApi } from '@/api/monitors.api';
 import toast from 'react-hot-toast';
@@ -167,7 +168,7 @@ export function GroupTree({ selectedGroupId, onSelectGroup, searchQuery = '' }: 
         {draggingMonitor && (
           <div className="flex items-center gap-2 rounded-md bg-bg-secondary border border-accent px-3 py-1.5 text-sm shadow-lg">
             <MonitorStatusBadge status={draggingMonitor.status} size="sm" inMaintenance={draggingMonitor.inMaintenance} />
-            <span className="text-text-primary">{draggingMonitor.name}</span>
+            <span className="text-text-primary">{anonymize(draggingMonitor.name)}</span>
           </div>
         )}
       </DragOverlay>
@@ -293,7 +294,7 @@ export function DraggableMonitor({
       style={{ paddingLeft: `${depth * 16 + 8}px` }}
     >
       <MonitorStatusBadge status={monitor.status} size="sm" inMaintenance={monitor.inMaintenance} />
-      <span className="truncate flex-1 text-left">{monitor.name}</span>
+      <span className="truncate flex-1 text-left">{anonymize(monitor.name)}</span>
 
       {isValueWatcher ? (
         <>

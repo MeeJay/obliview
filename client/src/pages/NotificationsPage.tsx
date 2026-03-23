@@ -26,6 +26,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { useTenantStore } from '@/store/tenantStore';
+import { anonymize } from '@/utils/anonymize';
 
 // ── Tenant sharing panel (per channel) ──────────────────────────────────────
 
@@ -452,7 +453,7 @@ export function NotificationsPage() {
                   <div className="flex items-center gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-text-primary">{ch.name}</span>
+                        <span className="text-sm font-medium text-text-primary">{anonymize(ch.name)}</span>
                         <span className="rounded-full bg-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-text-muted">
                           {plugin?.name || ch.type}
                         </span>

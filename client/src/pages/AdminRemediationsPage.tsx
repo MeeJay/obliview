@@ -13,6 +13,7 @@ import type {
   SshRemediationConfig,
 } from '@obliview/shared';
 import { remediationApi } from '../api/remediation.api';
+import { anonymize } from '../utils/anonymize';
 import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import toast from 'react-hot-toast';
@@ -507,7 +508,7 @@ export function AdminRemediationsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Zap size={13} className="text-amber-400 shrink-0" />
-                      <span className="text-sm font-medium text-text-primary">{action.name}</span>
+                      <span className="text-sm font-medium text-text-primary">{anonymize(action.name)}</span>
                       <span className="rounded-full bg-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-text-muted">
                         {ACTION_TYPE_LABELS[action.type]}
                       </span>

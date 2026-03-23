@@ -32,6 +32,7 @@ import { teamsApi } from '@/api/teams.api';
 import { groupsApi } from '@/api/groups.api';
 import { monitorsApi } from '@/api/monitors.api';
 import { useAuthStore } from '@/store/authStore';
+import { anonymize, anonymizeUsername } from '@/utils/anonymize';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -545,8 +546,8 @@ export function AdminUsersPage() {
                   <div key={user.id} className="flex items-center gap-2 px-3 py-2.5 group">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-text-primary truncate">{user.username.startsWith('og_') ? user.username.slice(3) : user.username}</span>
-                        {user.displayName && <span className="text-xs text-text-muted">({user.displayName})</span>}
+                        <span className="text-sm font-medium text-text-primary truncate">{anonymizeUsername(user.username.startsWith('og_') ? user.username.slice(3) : user.username)}</span>
+                        {user.displayName && <span className="text-xs text-text-muted">({anonymize(user.displayName)})</span>}
                         <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                           user.role === 'admin' ? 'bg-accent/10 text-accent' : 'bg-bg-tertiary text-text-muted'
                         }`}>
@@ -641,7 +642,7 @@ export function AdminUsersPage() {
                       }`}
                     >
                       <Building2 size={10} className="inline mr-1" />
-                      {tenant.name}
+                      {anonymize(tenant.name)}
                     </button>
                   ))}
                 </div>
@@ -709,7 +710,7 @@ export function AdminUsersPage() {
                       <Users size={14} className="shrink-0 text-text-muted" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-sm font-medium text-text-primary">{team.name}</span>
+                          <span className="text-sm font-medium text-text-primary">{anonymize(team.name)}</span>
                           {team.canCreate && (
                             <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
                               {t('users.teams.createBadge')}
@@ -719,7 +720,7 @@ export function AdminUsersPage() {
                           {team.tenantName && isPlatformAdmin && (
                             <span className="rounded bg-bg-tertiary border border-border px-1.5 py-0.5 text-[10px] text-text-muted flex items-center gap-0.5">
                               <Building2 size={9} />
-                              {team.tenantName}
+                              {anonymize(team.tenantName)}
                             </span>
                           )}
                         </div>
@@ -750,7 +751,7 @@ export function AdminUsersPage() {
         {selectedTeam && tab === 'teams' && (
           <div className="flex-1 min-w-0 max-w-2xl">
             <div className="sticky top-6">
-              <h2 className="text-lg font-semibold text-text-primary mb-1">{selectedTeam.name}</h2>
+              <h2 className="text-lg font-semibold text-text-primary mb-1">{anonymize(selectedTeam.name)}</h2>
               {selectedTeam.description && (
                 <p className="text-sm text-text-muted mb-4">{selectedTeam.description}</p>
               )}
@@ -793,8 +794,8 @@ export function AdminUsersPage() {
                           >
                             {isMember && <Check size={12} className="text-white" />}
                           </div>
-                          <span className="text-sm text-text-primary">{user.username.startsWith('og_') ? user.username.slice(3) : user.username}</span>
-                          {user.displayName && <span className="text-xs text-text-muted">({user.displayName})</span>}
+                          <span className="text-sm text-text-primary">{anonymizeUsername(user.username.startsWith('og_') ? user.username.slice(3) : user.username)}</span>
+                          {user.displayName && <span className="text-xs text-text-muted">({anonymize(user.displayName)})</span>}
                           {!user.isActive && <span className="text-[10px] text-status-down">{t('users.disabled')}</span>}
                         </label>
                       );
@@ -867,7 +868,7 @@ export function AdminUsersPage() {
                 <Building2 size={16} className="text-accent" />
                 <div>
                   <h3 className="text-sm font-semibold text-text-primary">Tenants</h3>
-                  <p className="text-xs text-text-muted">{tenantPanelUser.username}</p>
+                  <p className="text-xs text-text-muted">{anonymizeUsername(tenantPanelUser.username)}</p>
                 </div>
               </div>
               <button
@@ -1034,7 +1035,7 @@ function PermTreeNode({
 
         <FolderOpen size={13} className={`shrink-0 ${perm ? 'text-accent' : isCovered ? 'text-accent/40' : 'text-text-muted'}`} />
         <span className={`flex-1 text-sm truncate ${perm ? 'text-text-primary font-medium' : isCovered ? 'text-text-muted' : 'text-text-primary'}`}>
-          {node.name}
+          {anonymize(node.name)}
         </span>
 
         {node.isGeneral && (
@@ -1145,7 +1146,7 @@ function PermMonitorRow({
     >
       <Monitor size={13} className={`shrink-0 ${perm ? 'text-accent' : isCovered ? 'text-accent/40' : 'text-text-muted'}`} />
       <span className={`flex-1 text-sm truncate ${perm ? 'text-text-primary font-medium' : isCovered ? 'text-text-muted' : 'text-text-primary'}`}>
-        {monitor.name}
+        {anonymize(monitor.name)}
       </span>
 
       {perm ? (
