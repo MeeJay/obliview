@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { Monitor, Heartbeat, AgentThresholds } from '@obliview/shared';
+import { anonymize } from '@/utils/anonymize';
 import { cn } from '@/utils/cn';
 
 interface AgentCardTileProps {
@@ -148,7 +149,7 @@ const NET_REF = 12_500_000;
 
 export function AgentCardTile({ monitor, heartbeats }: AgentCardTileProps) {
   const snapshot   = parseAgentSnapshot(heartbeats);
-  const deviceName = monitor.agentDeviceName ?? monitor.name;
+  const deviceName = anonymize(monitor.agentDeviceName ?? monitor.name);
   const linkTo     = monitor.agentDeviceId
     ? `/agents/${monitor.agentDeviceId}`
     : `/monitor/${monitor.id}`;

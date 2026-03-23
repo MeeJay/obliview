@@ -16,6 +16,7 @@ import { agentApi } from '../api/agent.api';
 import { monitorsApi } from '../api/monitors.api';
 import apiClient from '../api/client';
 import type { AgentMetrics, AgentPushSnapshot } from '../types/agent';
+import { anonymize, anonymizeIp } from '../utils/anonymize';
 import { getSocket } from '../socket/socketClient';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { NotificationBindingsPanel } from '../components/notifications/NotificationBindingsPanel';
@@ -2552,7 +2553,7 @@ export function AgentDetailPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 {!editingName ? (
                   <>
-                    <h1 className="text-xl font-bold text-text-primary">{device.name ?? device.hostname}</h1>
+                    <h1 className="text-xl font-bold text-text-primary">{anonymize(device.name ?? device.hostname)}</h1>
                     {device.inMaintenance && (
                       <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-status-maintenance/15 text-status-maintenance border border-status-maintenance/30">
                         MAINT.
@@ -2592,8 +2593,8 @@ export function AgentDetailPage() {
               </div>
               {/* Subtitle: system info */}
               <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-1 text-xs text-text-muted">
-                {device.name         && <span className="font-mono">{device.hostname}</span>}
-                {device.ip           && <span>{device.ip}</span>}
+                {device.name         && <span className="font-mono">{anonymize(device.hostname)}</span>}
+                {device.ip           && <span>{anonymizeIp(device.ip)}</span>}
                 {osLabel             && <span>{osLabel}</span>}
                 {device.osInfo?.arch && <span>{device.osInfo.arch}</span>}
                 {device.agentVersion && <span>Agent v{device.agentVersion}</span>}

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { Monitor, Heartbeat } from '@obliview/shared';
 import { MONITOR_TYPE_LABELS } from '@obliview/shared';
+import { anonymize } from '@/utils/anonymize';
 import { MonitorStatusBadge } from './MonitorStatusBadge';
 import { HeartbeatBar } from './HeartbeatBar';
 import { MiniSparkline } from './MiniSparkline';
@@ -89,7 +90,7 @@ export function MonitorCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="truncate font-medium text-text-primary text-sm">
-              {isAgent ? (monitor.agentDeviceName || monitor.name) : monitor.name}
+              {anonymize(isAgent ? (monitor.agentDeviceName || monitor.name) : monitor.name)}
             </span>
             <span className="text-xs text-text-muted">
               {MONITOR_TYPE_LABELS[monitor.type]}

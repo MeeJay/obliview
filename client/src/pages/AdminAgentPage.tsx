@@ -22,6 +22,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { SOCKET_EVENTS } from '@obliview/shared';
 import type { AgentApiKey, AgentDevice, MonitorGroup } from '@obliview/shared';
+import { anonymize, anonymizeIp } from '@/utils/anonymize';
 import { agentApi } from '@/api/agent.api';
 import { groupsApi } from '@/api/groups.api';
 import { getSocket } from '@/socket/socketClient';
@@ -948,17 +949,17 @@ export function AdminAgentPage() {
                             to={`/agents/${device.id}`}
                             className="font-medium text-text-primary hover:text-accent transition-colors"
                           >
-                            {device.name ?? device.hostname}
+                            {anonymize(device.name ?? device.hostname)}
                           </Link>
                         ) : (
-                          <span className="font-medium text-text-primary">{device.name ?? device.hostname}</span>
+                          <span className="font-medium text-text-primary">{anonymize(device.name ?? device.hostname)}</span>
                         )}
                         {device.name && (
-                          <div className="text-[10px] text-text-muted mt-0.5">{device.hostname}</div>
+                          <div className="text-[10px] text-text-muted mt-0.5">{anonymize(device.hostname)}</div>
                         )}
                         <div className="text-[10px] text-text-muted font-mono mt-0.5">{device.uuid.slice(0, 12)}…</div>
                       </td>
-                      <td className="px-4 py-3 text-text-muted">{device.ip ?? '—'}</td>
+                      <td className="px-4 py-3 text-text-muted">{anonymizeIp(device.ip) ?? '—'}</td>
                       <td className="px-4 py-3 text-text-muted">
                         {device.osInfo
                           ? `${device.osInfo.distro ?? device.osInfo.platform} ${device.osInfo.release ?? ''}`

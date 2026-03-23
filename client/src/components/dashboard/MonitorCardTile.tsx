@@ -30,12 +30,14 @@ function statusBorderClass(status: string): string {
   }
 }
 
+import { anonymize } from '@/utils/anonymize';
+
 /** Monitor host/URL display string */
 function hostLabel(monitor: Monitor): string | null {
   if (monitor.url) {
-    try { return new URL(monitor.url).hostname; } catch { return monitor.url; }
+    try { return anonymize(new URL(monitor.url).hostname); } catch { return anonymize(monitor.url); }
   }
-  if (monitor.hostname) return monitor.hostname;
+  if (monitor.hostname) return anonymize(monitor.hostname);
   return null;
 }
 

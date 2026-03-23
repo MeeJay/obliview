@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/cn';
+import { anonymize } from '@/utils/anonymize';
 import { useAuthStore } from '@/store/authStore';
 import { useMonitorStore } from '@/store/monitorStore';
 import { useGroupStore } from '@/store/groupStore';
@@ -105,7 +106,7 @@ function DraggableDeviceItem({
     data: { type: 'agent-device', device },
   });
 
-  const displayName = device.name ?? device.hostname;
+  const displayName = anonymize(device.name ?? device.hostname);
 
   return (
     <div

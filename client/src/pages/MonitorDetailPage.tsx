@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Pencil, Pause, Play, Trash2, ArrowLeft, Copy, ShieldAlert, ShieldX, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/cn';
+import { anonymize, anonymizeUrl } from '@/utils/anonymize';
 import { useMonitorStore } from '@/store/monitorStore';
 import { useAuthStore } from '@/store/authStore';
 import { monitorsApi } from '@/api/monitors.api';
@@ -178,12 +179,12 @@ export function MonitorDetailPage() {
         <div className="flex items-center gap-4">
           <MonitorStatusBadge status={monitor.status} size="lg" inMaintenance={monitor.inMaintenance} />
           <div>
-            <h1 className="text-2xl font-semibold text-text-primary">{monitor.name}</h1>
+            <h1 className="text-2xl font-semibold text-text-primary">{anonymize(monitor.name)}</h1>
             <p className="text-sm text-text-secondary">
               {MONITOR_TYPE_LABELS[monitor.type]}
-              {(monitor.type === 'http' || monitor.type === 'json_api') && monitor.url && ` - ${monitor.url}`}
-              {(['ping', 'tcp', 'dns', 'ssl', 'smtp'].includes(monitor.type)) && monitor.hostname && ` - ${monitor.hostname}${monitor.port ? `:${monitor.port}` : ''}`}
-              {monitor.type === 'docker' && monitor.dockerContainerName && ` - ${monitor.dockerContainerName}`}
+              {(monitor.type === 'http' || monitor.type === 'json_api') && monitor.url && ` - ${anonymizeUrl(monitor.url)}`}
+              {(['ping', 'tcp', 'dns', 'ssl', 'smtp'].includes(monitor.type)) && monitor.hostname && ` - ${anonymize(monitor.hostname)}${monitor.port ? `:${monitor.port}` : ''}`}
+              {monitor.type === 'docker' && monitor.dockerContainerName && ` - ${anonymize(monitor.dockerContainerName)}`}
               {monitor.type === 'game_server' && monitor.gameHost && ` - ${monitor.gameHost}${monitor.gamePort ? `:${monitor.gamePort}` : ''}`}
               {monitor.type === 'push' && ' - Push'}
               {monitor.type === 'script' && monitor.scriptCommand && ` - ${monitor.scriptCommand}`}

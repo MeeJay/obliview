@@ -11,6 +11,8 @@ export interface UserPreferences {
   toastPosition: 'top-center' | 'bottom-right';
   multiTenantNotificationsEnabled?: boolean;
   preferredTheme?: AppTheme;
+  /** When true, sensitive data (hostnames, IPs, usernames, MACs) is masked in the UI. Synced from Obligate. */
+  anonymousMode?: boolean;
 }
 
 /** Shape of a live alert as returned by the server (used in socket NOTIFICATION_NEW + REST API). */
