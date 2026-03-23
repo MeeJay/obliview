@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft, RefreshCw, Settings2, Cpu, HardDrive,
+  ArrowLeft, ArrowLeftRight, RefreshCw, Settings2, Cpu, HardDrive,
   Network, Activity, Server, AlertTriangle, Wind, Thermometer,
   MonitorDot, ArrowDownToLine, ArrowUpFromLine,
   Pencil, Check, X, LayoutDashboard,
@@ -2308,6 +2308,9 @@ export function AgentDetailPage() {
   // Live operational status pushed by socket (e.g. 'updating')
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
 
+  // Cross-app device links
+  const [crossAppLinks, setCrossAppLinks] = useState<Array<{ appType: string; name: string; url: string; color: string | null }>>([]);
+
 
   const openConfigModal = (section: 'cpu' | 'ram' | 'gpu' | 'drives' | 'network' | 'temps') => {
     setConfigModalSection(section);
@@ -2375,6 +2378,17 @@ export function AgentDetailPage() {
 
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Fetch cross-app device links
+  useEffect(() => {
+    if (!device?.uuid) return;
+    fetch(`/api/auth/device-links?uuid=${encodeURIComponent(device.uuid)}`, { credentials: 'include' })
+      .then(r => r.json())
+      .then((d: { success: boolean; data?: Array<{ appType: string; name: string; url: string; color: string | null }> }) => {
+        if (d.success && d.data) setCrossAppLinks(d.data);
+      })
+      .catch(() => {});
+  }, [device?.uuid]);
 
   // Socket.io real-time updates + history accumulation
   useEffect(() => {
@@ -2618,6 +2632,20 @@ export function AgentDetailPage() {
                 <Settings2 size={15} />
               </button>
             )}
+            {crossAppLinks.map(link => (
+              <a
+                key={link.appType}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Open in ${link.name}`}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors"
+                style={{ color: link.color ?? '#58a6ff', borderColor: `${link.color ?? '#58a6ff'}40`, backgroundColor: `${link.color ?? '#58a6ff'}0d` }}
+              >
+                <ArrowLeftRight size={12} />
+                {link.name}
+              </a>
+            ))}
             <button onClick={() => void loadData()}
               className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors" title="Refresh">
               <RefreshCw size={15} />
