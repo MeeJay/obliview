@@ -61,8 +61,7 @@ export function Header() {
             is mirrored here so it remains always accessible. */}
         {sidebarFloating && (
           <Link to="/" className="flex items-center gap-2 shrink-0">
-            <img src="/logo.svg" alt="Obliview" className="h-8 w-8 rounded-lg" />
-            <span className="hidden text-lg font-semibold text-text-primary sm:block">Obliview</span>
+            <img src="/logo.svg" alt="Obliview" className="h-10 w-10 rounded-lg" />
           </Link>
         )}
 
