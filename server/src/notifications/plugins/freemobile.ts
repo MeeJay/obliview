@@ -13,7 +13,10 @@ export const freemobilePlugin: NotificationPlugin = {
   async send(config, payload) {
     const icon = statusIcon(payload.newStatus);
     const prefix = payload.appName || 'Obliview';
-    const msg = `[${prefix}] ${icon} ${payload.monitorName}: ${payload.oldStatus} → ${payload.newStatus}${payload.message ? ` - ${payload.message}` : ''}`;
+    const header = payload.isGroupNotification
+      ? `Group "${payload.groupName}" — ${payload.totalFailingCount ?? 1} failing`
+      : `${payload.monitorName}: ${payload.oldStatus} → ${payload.newStatus}`;
+    const msg = `[${prefix}] ${icon} ${header}${payload.message ? ` - ${payload.message}` : ''}`;
 
     const params = new URLSearchParams({
       user: String(config.userId),

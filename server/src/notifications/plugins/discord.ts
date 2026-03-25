@@ -11,14 +11,26 @@ export const discordPlugin: NotificationPlugin = {
   ],
 
   async send(config, payload) {
+    const title = payload.isGroupNotification
+      ? `${statusIcon(payload.newStatus)} Group Alert — ${payload.groupName}`
+      : `${statusIcon(payload.newStatus)} ${payload.monitorName}`;
+
+    const fields: { name: string; value: string; inline?: boolean }[] = [];
+    if (!payload.isGroupNotification) {
+      fields.push({ name: 'Status', value: payload.newStatus.toUpperCase(), inline: true });
+    }
+    if (payload.monitorUrl) {
+      fields.push({ name: 'URL', value: payload.monitorUrl, inline: true });
+    }
+    if (payload.isGroupNotification && payload.failingMonitors?.length) {
+      fields.push({ name: 'Affected monitors', value: payload.failingMonitors.join(', ') });
+    }
+
     const embed = {
-      title: `${statusIcon(payload.newStatus)} ${payload.monitorName}`,
+      title,
       description: payload.message || `Status changed: **${payload.oldStatus}** → **${payload.newStatus}**`,
       color: STATUS_COLORS_HEX[payload.newStatus] ?? 0x95a5a6,
-      fields: [
-        { name: 'Status', value: payload.newStatus.toUpperCase(), inline: true },
-        ...(payload.monitorUrl ? [{ name: 'URL', value: payload.monitorUrl, inline: true }] : []),
-      ],
+      fields,
       timestamp: payload.timestamp,
     };
 

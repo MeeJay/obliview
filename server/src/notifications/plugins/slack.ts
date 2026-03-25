@@ -15,6 +15,16 @@ export const slackPlugin: NotificationPlugin = {
     const colorMap: Record<string,string> = { up: '#2ecc71', alert: '#e67e22', ssl_warning: '#f39c12', ssl_expired: '#e74c3c', inactive: '#95a5a6', value_changed: '#3498db' };
     const color = colorMap[payload.newStatus] ?? '#e74c3c';
 
+    const headerText = payload.isGroupNotification
+      ? `${icon} *Group Alert — ${payload.groupName}*`
+      : `${icon} *${payload.monitorName}*`;
+    const statusText = payload.isGroupNotification
+      ? `${payload.totalFailingCount ?? payload.failingMonitors?.length ?? 0} monitor(s) affected`
+      : `Status: *${payload.oldStatus}* → *${payload.newStatus}*`;
+    const affectedText = payload.isGroupNotification && payload.failingMonitors?.length
+      ? `\nAffected: ${payload.failingMonitors.join(', ')}`
+      : '';
+
     const body: Record<string, unknown> = {
       attachments: [{
         color,
@@ -22,7 +32,7 @@ export const slackPlugin: NotificationPlugin = {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `${icon} *${payload.monitorName}*\nStatus: *${payload.oldStatus}* → *${payload.newStatus}*${payload.message ? `\n${payload.message}` : ''}`,
+            text: `${headerText}\n${statusText}${payload.message ? `\n${payload.message}` : ''}${affectedText}`,
           },
         }],
       }],

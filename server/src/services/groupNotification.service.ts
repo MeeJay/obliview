@@ -142,6 +142,52 @@ export const groupNotificationService = {
   },
 
   /**
+   * Get all monitors currently failing in a grouped-notification group.
+   * Includes confirmed-down monitors AND monitors still in the retry window.
+   * Used to enrich the first_down notification with a count of all affected services.
+   */
+  async getFailingMonitorsInGroup(groupNotifGroupId: number): Promise<{ name: string; status: string; isRetrying: boolean }[]> {
+    const descendantIds = await groupService.getDescendantIds(groupNotifGroupId);
+    if (descendantIds.length === 0) return [];
+
+    // Monitors with a confirmed problem status (past maxRetries)
+    const confirmedDown = await db('monitors')
+      .whereIn('group_id', descendantIds)
+      .where({ is_active: true })
+      .whereIn('status', ['down', 'alert', 'ssl_expired', 'ssl_warning'])
+      .select('id', 'name', 'status');
+
+    // Monitors currently retrying (status still shows 'up' in DB but latest heartbeat is_retrying=true)
+    // Use a subquery to get the latest heartbeat per monitor
+    const retrying = await db('monitors')
+      .whereIn('monitors.group_id', descendantIds)
+      .where({ 'monitors.is_active': true, 'monitors.status': 'up' })
+      .whereExists(function () {
+        this.select(db.raw(1))
+          .from('heartbeats as hb')
+          .whereRaw('hb.monitor_id = monitors.id')
+          .where('hb.is_retrying', true)
+          .where('hb.created_at', '>', db.raw("NOW() - INTERVAL '5 minutes'"));
+      })
+      .select('monitors.id', 'monitors.name', 'monitors.status');
+
+    const seen = new Set<number>();
+    const result: { name: string; status: string; isRetrying: boolean }[] = [];
+
+    for (const m of confirmedDown) {
+      seen.add(m.id);
+      result.push({ name: m.name, status: m.status, isRetrying: false });
+    }
+    for (const m of retrying) {
+      if (!seen.has(m.id)) {
+        result.push({ name: m.name, status: 'retrying', isRetrying: true });
+      }
+    }
+
+    return result;
+  },
+
+  /**
    * Remove a monitor from all group states.
    * Called when a monitor is deleted or moved to a different group.
    */

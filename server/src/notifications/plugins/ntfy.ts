@@ -21,7 +21,9 @@ export const ntfyPlugin: NotificationPlugin = {
 
     const priority = String(config.priority || '3');
     headers['X-Priority'] = priority;
-    headers['X-Title'] = `[${prefix}] ${icon} ${payload.monitorName}`;
+    headers['X-Title'] = payload.isGroupNotification
+      ? `[${prefix}] ${icon} Group "${payload.groupName}" — ${payload.totalFailingCount ?? 1} failing`
+      : `[${prefix}] ${icon} ${payload.monitorName}`;
     if (config.tags) { const tagMap: Record<string,string> = { up: 'white_check_mark', alert: 'large_orange_circle', ssl_warning: 'warning', inactive: 'black_circle', value_changed: 'arrows_counterclockwise' }; headers['X-Tags'] = tagMap[payload.newStatus] ?? 'rotating_light'; }
 
     const body = `${payload.oldStatus} → ${payload.newStatus}${payload.message ? `\n${payload.message}` : ''}`;

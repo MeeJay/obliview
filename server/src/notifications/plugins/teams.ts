@@ -35,7 +35,7 @@ function buildAdaptiveCard(payload: NotificationPayload): Record<string, unknown
     : `${emoji} ${payload.monitorName}`;
 
   const subtitle = payload.isGroupNotification
-    ? `${payload.downMonitors?.length ?? 0} monitor(s) affected`
+    ? `${payload.totalFailingCount ?? payload.downMonitors?.length ?? 0} monitor(s) affected`
     : `${payload.oldStatus.toUpperCase()} → ${payload.newStatus.toUpperCase()}`;
 
   const facts: { title: string; value: string }[] = [];
@@ -55,7 +55,9 @@ function buildAdaptiveCard(payload: NotificationPayload): Record<string, unknown
     facts.push({ title: 'Details', value: payload.message });
   }
 
-  if (payload.isGroupNotification && payload.downMonitors?.length) {
+  if (payload.isGroupNotification && payload.failingMonitors?.length) {
+    facts.push({ title: 'Affected monitors', value: payload.failingMonitors.join(', ') });
+  } else if (payload.isGroupNotification && payload.downMonitors?.length) {
     facts.push({ title: 'Affected monitors', value: payload.downMonitors.join(', ') });
   }
 

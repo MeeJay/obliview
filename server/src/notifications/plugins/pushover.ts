@@ -21,7 +21,9 @@ export const pushoverPlugin: NotificationPlugin = {
       body: JSON.stringify({
         token: config.appToken,
         user: config.userKey,
-        title: `[${prefix}] ${icon} ${payload.monitorName}`,
+        title: payload.isGroupNotification
+          ? `[${prefix}] ${icon} Group "${payload.groupName}" — ${payload.totalFailingCount ?? 1} failing`
+          : `[${prefix}] ${icon} ${payload.monitorName}`,
         message: `${payload.oldStatus} → ${payload.newStatus}${payload.message ? `\n${payload.message}` : ''}`,
         priority: Number(config.priority) || 0,
         url: payload.monitorUrl || undefined,

@@ -11,7 +11,9 @@ export interface NotificationPayload {
   // Group notification fields
   groupName?: string;
   groupId?: number;
-  downMonitors?: string[];
+  downMonitors?: string[];       // Names of confirmed-down monitors
+  failingMonitors?: string[];    // Names of ALL failing monitors (confirmed + retrying)
+  totalFailingCount?: number;    // Total count of failing monitors in the group
   isGroupNotification?: boolean;
 }
 

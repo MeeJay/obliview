@@ -419,6 +419,20 @@ export abstract class BaseMonitorWorker {
           );
 
           if (result === 'first_down') {
+            // Query all currently failing monitors in the group (confirmed + retrying)
+            const failing = await groupNotificationService.getFailingMonitorsInGroup(groupNotifGroupId);
+            const failingNames = failing.map(m => m.name);
+            const confirmedNames = failing.filter(m => !m.isRetrying).map(m => m.name);
+            const totalFailing = failing.length;
+
+            // Build a descriptive message
+            let groupMsg: string;
+            if (totalFailing <= 1) {
+              groupMsg = message ?? `Monitor "${this.config.name}" in group "${group!.name}" is ${newStatus.toUpperCase()}`;
+            } else {
+              groupMsg = `${totalFailing} monitor(s) failing in group "${group!.name}": ${failingNames.join(', ')}`;
+            }
+
             // Send ONE group-level notification
             await notificationService.sendForGroup(groupNotifGroupId, group!.name, {
               monitorName: this.config.name,
@@ -427,9 +441,11 @@ export abstract class BaseMonitorWorker {
               newStatus,
               groupName: group!.name,
               groupId: groupNotifGroupId,
-              downMonitors: [this.config.name],
+              downMonitors: confirmedNames,
+              failingMonitors: failingNames,
+              totalFailingCount: totalFailing,
               isGroupNotification: true,
-              message: message ?? `Monitor "${this.config.name}" in group "${group!.name}" is ${newStatus.toUpperCase()}`,
+              message: groupMsg,
               timestamp: new Date().toISOString(),
             });
           }

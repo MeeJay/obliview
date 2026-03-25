@@ -25,21 +25,40 @@ export const smtpPlugin: NotificationPlugin = {
       },
     });
 
+    const subject = payload.isGroupNotification
+      ? `${icon} Group "${payload.groupName}" — ${payload.totalFailingCount ?? 1} monitor(s) failing`
+      : `${icon} ${payload.monitorName} is ${payload.newStatus.toUpperCase()}`;
+    const heading = payload.isGroupNotification
+      ? `${icon} Group Alert — ${payload.groupName}`
+      : `${icon} ${payload.monitorName}`;
+    const affectedText = payload.isGroupNotification && payload.failingMonitors?.length
+      ? `Affected: ${payload.failingMonitors.join(', ')}`
+      : '';
+    const affectedHtml = payload.isGroupNotification && payload.failingMonitors?.length
+      ? `<p><strong>Affected:</strong> ${payload.failingMonitors.join(', ')}</p>`
+      : '';
+
     await transport.sendMail({
       from: String(config.from),
       to: String(config.to),
-      subject: `${icon} ${payload.monitorName} is ${payload.newStatus.toUpperCase()}`,
+      subject,
       text: [
-        `Monitor: ${payload.monitorName}`,
-        `Status: ${payload.oldStatus} → ${payload.newStatus}`,
+        heading,
+        payload.isGroupNotification
+          ? `${payload.totalFailingCount ?? 1} monitor(s) affected`
+          : `Status: ${payload.oldStatus} → ${payload.newStatus}`,
         payload.message ? `Message: ${payload.message}` : '',
+        affectedText,
         payload.monitorUrl ? `URL: ${payload.monitorUrl}` : '',
         `Time: ${payload.timestamp}`,
       ].filter(Boolean).join('\n'),
       html: [
-        `<h2>${icon} ${payload.monitorName}</h2>`,
-        `<p><strong>Status:</strong> ${payload.oldStatus} → <strong>${payload.newStatus.toUpperCase()}</strong></p>`,
+        `<h2>${heading}</h2>`,
+        payload.isGroupNotification
+          ? `<p><strong>${payload.totalFailingCount ?? 1} monitor(s) affected</strong></p>`
+          : `<p><strong>Status:</strong> ${payload.oldStatus} → <strong>${payload.newStatus.toUpperCase()}</strong></p>`,
         payload.message ? `<p>${payload.message}</p>` : '',
+        affectedHtml,
         payload.monitorUrl ? `<p><a href="${payload.monitorUrl}">${payload.monitorUrl}</a></p>` : '',
         `<p><small>${payload.timestamp}</small></p>`,
       ].filter(Boolean).join('\n'),

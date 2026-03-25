@@ -20,7 +20,9 @@ export const gotifyPlugin: NotificationPlugin = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        title: `[${prefix}] ${icon} ${payload.monitorName}`,
+        title: payload.isGroupNotification
+          ? `[${prefix}] ${icon} Group "${payload.groupName}" — ${payload.totalFailingCount ?? 1} failing`
+          : `[${prefix}] ${icon} ${payload.monitorName}`,
         message: `${payload.oldStatus} → ${payload.newStatus}${payload.message ? `\n${payload.message}` : ''}`,
         priority: Number(config.priority) || 5,
       }),

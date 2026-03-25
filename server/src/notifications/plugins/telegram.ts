@@ -12,10 +12,20 @@ export const telegramPlugin: NotificationPlugin = {
 
   async send(config, payload) {
     const icon = statusIcon(payload.newStatus);
+    const header = payload.isGroupNotification
+      ? `${icon} <b>Group Alert — ${payload.groupName}</b>`
+      : `${icon} <b>${payload.monitorName}</b>`;
+    const status = payload.isGroupNotification
+      ? `${payload.totalFailingCount ?? payload.failingMonitors?.length ?? 0} monitor(s) affected`
+      : `Status: <b>${payload.oldStatus.toUpperCase()}</b> → <b>${payload.newStatus.toUpperCase()}</b>`;
+    const affected = payload.isGroupNotification && payload.failingMonitors?.length
+      ? `\nAffected: ${payload.failingMonitors.join(', ')}`
+      : '';
     const text = [
-      `${icon} <b>${payload.monitorName}</b>`,
-      `Status: <b>${payload.oldStatus.toUpperCase()}</b> → <b>${payload.newStatus.toUpperCase()}</b>`,
+      header,
+      status,
       payload.message ? `\n${payload.message}` : '',
+      affected,
       payload.monitorUrl ? `\n🔗 ${payload.monitorUrl}` : '',
     ].filter(Boolean).join('\n');
 
