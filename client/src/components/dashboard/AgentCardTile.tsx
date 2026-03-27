@@ -202,7 +202,7 @@ export function AgentCardTile({ monitor, heartbeats }: AgentCardTileProps) {
             {deviceName}
           </div>
           <div className="text-[11px] text-text-muted mt-0.5 truncate">
-            {monitor.name !== deviceName ? monitor.name : 'Agent Monitor'}
+            {monitor.name !== deviceName ? anonymize(monitor.name) : 'Agent Monitor'}
           </div>
         </div>
         <StatusDot status={monitor.status} />

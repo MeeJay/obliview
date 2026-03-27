@@ -70,7 +70,7 @@ export function MonitorCardTile({ monitor, heartbeats }: MonitorCardTileProps) {
         <MonitorStatusBadge status={monitor.status} size="sm" inMaintenance={monitor.inMaintenance} />
         <div className="flex-1 min-w-0">
           <div className="truncate text-sm font-semibold text-text-primary leading-tight">
-            {monitor.name}
+            {anonymize(monitor.name)}
           </div>
           {host && (
             <div className="truncate text-xs text-text-muted mt-0.5">{host}</div>
