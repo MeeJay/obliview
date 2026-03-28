@@ -32,6 +32,7 @@ import { teamsApi } from '@/api/teams.api';
 import { groupsApi } from '@/api/groups.api';
 import { monitorsApi } from '@/api/monitors.api';
 import { useAuthStore } from '@/store/authStore';
+import { useTenantStore } from '@/store/tenantStore';
 import { anonymize, anonymizeUsername } from '@/utils/anonymize';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -47,7 +48,9 @@ type TenantDraft = Record<number, { isMember: boolean; role: 'admin' | 'member' 
 export function AdminUsersPage() {
   const { t } = useTranslation();
   const { user: currentUser } = useAuthStore();
+  const { tenants: storeTenants, currentTenantId } = useTenantStore();
   const isPlatformAdmin = currentUser?.role === 'admin';
+  const isDefaultTenant = currentTenantId === 1;
   const [tab, setTab] = useState<Tab>('users');
 
   // Data
@@ -71,13 +74,18 @@ export function AdminUsersPage() {
   const [formTeamName, setFormTeamName] = useState('');
   const [formTeamDesc, setFormTeamDesc] = useState('');
   const [formCanCreate, setFormCanCreate] = useState(false);
+  const [formIsGlobal, setFormIsGlobal] = useState(false);
   const [formTeamTenantId, setFormTeamTenantId] = useState<number | ''>('');
 
   // Selected team for right panel
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [teamMembers, setTeamMembers] = useState<number[]>([]);
   const [teamPermissions, setTeamPermissions] = useState<TeamPermission[]>([]);
-  const [rightTab, setRightTab] = useState<'members' | 'permissions'>('members');
+  const [rightTab, setRightTab] = useState<'members' | 'permissions' | 'tenants'>('members');
+
+  // Global team target tenants
+  const [targetTenants, setTargetTenants] = useState<Array<{ id: number; name: string; slug: string }>>([]);
+  const [allTenants, setAllTenants] = useState<Array<{ id: number; name: string; slug: string }>>([]);
 
   // Team tenant filter (platform admin only)
   const [teamTenantFilter, setTeamTenantFilter] = useState<number | 'all'>('all');
@@ -113,6 +121,14 @@ export function AdminUsersPage() {
       const detail = await teamsApi.getById(teamId);
       setTeamMembers(detail.memberIds);
       setTeamPermissions(detail.permissions);
+      // Load target tenants for global teams
+      const team = teams.find(t2 => t2.id === teamId);
+      if (team?.isGlobal) {
+        const tt = await teamsApi.getTargetTenants(teamId);
+        setTargetTenants(tt);
+      } else {
+        setTargetTenants([]);
+      }
     } catch {
       toast.error(t('users.teams.failedMembers'));
     }
@@ -120,8 +136,16 @@ export function AdminUsersPage() {
 
   const selectTeam = (teamId: number) => {
     setSelectedTeamId(teamId);
+    setRightTab('members');
     loadTeamDetails(teamId);
   };
+
+  // Fetch all tenants for the target tenants panel
+  useEffect(() => {
+    if (isPlatformAdmin) {
+      setAllTenants(storeTenants.map(t2 => ({ id: t2.id, name: t2.name, slug: t2.slug })));
+    }
+  }, [storeTenants, isPlatformAdmin]);
 
   // ── Derived: unique tenants from teams list ──
   const teamTenants: { id: number; name: string }[] = [];
@@ -233,6 +257,7 @@ export function AdminUsersPage() {
     setFormTeamName('');
     setFormTeamDesc('');
     setFormCanCreate(false);
+    setFormIsGlobal(false);
     setFormTeamTenantId('');
   };
 
@@ -244,6 +269,7 @@ export function AdminUsersPage() {
         name: formTeamName,
         description: formTeamDesc || null,
         canCreate: formCanCreate,
+        isGlobal: formIsGlobal,
       };
       const createPayload = (isPlatformAdmin && formTeamTenantId !== '')
         ? { ...baseData, tenantId: Number(formTeamTenantId) }
@@ -583,7 +609,8 @@ export function AdminUsersPage() {
                         <Pencil size={13} />
                       </button>
                     )}
-                    {/* Tenant assignment button */}
+                    {/* Tenant assignment button — hidden for SSO users (managed from Obligate) */}
+                    {user.foreignSource !== 'obligate' && (
                     <button
                       onClick={() => openTenantPanel(user)}
                       className="shrink-0 p-1 text-text-muted hover:text-accent opacity-0 group-hover:opacity-100"
@@ -591,6 +618,7 @@ export function AdminUsersPage() {
                     >
                       <Building2 size={13} />
                     </button>
+                    )}
                     {user.id !== currentUser?.id && user.foreignSource !== 'obligate' && (
                       <button onClick={() => handleDeleteUser(user)}
                         className="shrink-0 p-1 text-text-muted hover:text-status-down opacity-0 group-hover:opacity-100" title={t('common.delete')}>
@@ -668,6 +696,15 @@ export function AdminUsersPage() {
                       />
                       {t('users.teams.canCreate')}
                     </label>
+                    {isPlatformAdmin && isDefaultTenant && teamFormMode === 'create' && (
+                      <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer">
+                        <Checkbox
+                          checked={formIsGlobal}
+                          onCheckedChange={setFormIsGlobal}
+                        />
+                        Multi-tenant (global team)
+                      </label>
+                    )}
                     {/* Tenant selector — platform admin only, create mode only */}
                     {isPlatformAdmin && teamFormMode === 'create' && teamTenants.length > 0 && (
                       <div className="space-y-1">
@@ -715,6 +752,11 @@ export function AdminUsersPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-sm font-medium text-text-primary">{anonymize(team.name)}</span>
+                          {team.isGlobal && (
+                            <span className="rounded-full bg-[#D3AB52]/15 border border-[#D3AB52]/40 px-1.5 py-0.5 text-[10px] font-medium text-[#D3AB52]">
+                              Global
+                            </span>
+                          )}
                           {team.canCreate && (
                             <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
                               {t('users.teams.createBadge')}
@@ -732,16 +774,20 @@ export function AdminUsersPage() {
                           <p className="text-xs text-text-muted truncate">{team.description}</p>
                         )}
                       </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setEditingTeam(team); setFormTeamName(team.name); setFormTeamDesc(team.description || ''); setFormCanCreate(team.canCreate); setTeamFormMode('edit'); }}
-                        className="shrink-0 p-1 text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100">
-                        <Pencil size={13} />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteTeam(team); }}
-                        className="shrink-0 p-1 text-text-muted hover:text-status-down opacity-0 group-hover:opacity-100">
-                        <Trash2 size={13} />
-                      </button>
+                      {(!team.isGlobal || isDefaultTenant) && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setEditingTeam(team); setFormTeamName(team.name); setFormTeamDesc(team.description || ''); setFormCanCreate(team.canCreate); setTeamFormMode('edit'); }}
+                          className="shrink-0 p-1 text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100">
+                          <Pencil size={13} />
+                        </button>
+                      )}
+                      {(!team.isGlobal || isDefaultTenant) && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteTeam(team); }}
+                          className="shrink-0 p-1 text-text-muted hover:text-status-down opacity-0 group-hover:opacity-100">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                       <ChevronRight size={14} className="shrink-0 text-text-muted" />
                     </div>
                   ))
@@ -778,6 +824,16 @@ export function AdminUsersPage() {
                 >
                   {t('users.teams.tabPermissions')}
                 </button>
+                {selectedTeam.isGlobal && isDefaultTenant && (
+                  <button
+                    onClick={() => setRightTab('tenants')}
+                    className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      rightTab === 'tenants' ? 'bg-accent text-white' : 'text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    Tenants
+                  </button>
+                )}
               </div>
 
               {/* Members panel */}
@@ -848,6 +904,49 @@ export function AdminUsersPage() {
                         );
                       })}
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* Target tenants panel — global teams only */}
+              {rightTab === 'tenants' && selectedTeam.isGlobal && (
+                <div className="rounded-lg border border-border bg-bg-secondary divide-y divide-border max-h-[70vh] overflow-y-auto">
+                  <div className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase tracking-wide">
+                    Target Tenants
+                  </div>
+                  {allTenants.filter(t2 => t2.id !== 1).length === 0 ? (
+                    <p className="p-4 text-sm text-text-muted text-center">No tenants available</p>
+                  ) : (
+                    allTenants.filter(t2 => t2.id !== 1).map((tenant) => {
+                      const isTarget = targetTenants.some(tt => tt.id === tenant.id);
+                      return (
+                        <label key={tenant.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-bg-hover cursor-pointer">
+                          <div
+                            className={`flex h-4 w-4 items-center justify-center rounded border shrink-0 ${
+                              isTarget ? 'border-accent bg-accent' : 'border-border bg-bg-tertiary'
+                            }`}
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              const newIds = isTarget
+                                ? targetTenants.filter(tt => tt.id !== tenant.id).map(tt => tt.id)
+                                : [...targetTenants.map(tt => tt.id), tenant.id];
+                              try {
+                                const updated = await teamsApi.setTargetTenants(selectedTeam.id, newIds);
+                                setTargetTenants(updated);
+                                toast.success(`Tenant ${isTarget ? 'removed' : 'added'}`);
+                              } catch { toast.error('Failed to update target tenants'); }
+                            }}
+                          >
+                            {isTarget && <Check size={12} className="text-white" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm text-text-primary">{tenant.name}</span>
+                            <span className="text-xs text-text-muted ml-1.5">({tenant.slug})</span>
+                          </div>
+                          <Building2 size={14} className="shrink-0 text-text-muted" />
+                        </label>
+                      );
+                    })
                   )}
                 </div>
               )}

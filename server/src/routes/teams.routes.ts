@@ -32,4 +32,12 @@ router.get('/:id/permissions', teamsController.getPermissions);
 router.put('/:id/permissions', validate(setTeamPermissionsSchema), teamsController.setPermissions);
 router.delete('/:id/permissions/:permId', teamsController.removePermission);
 
+// Global team target tenants
+router.get('/:id/target-tenants', teamsController.getTargetTenants);
+router.put('/:id/target-tenants', teamsController.setTargetTenants);
+
+// Cross-tenant permissions (global teams)
+router.get('/:id/cross-tenant-permissions', teamsController.getCrossTenantPermissions);
+router.put('/:id/cross-tenant-permissions', teamsController.setCrossTenantPermissions);
+
 export default router;

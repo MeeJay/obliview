@@ -67,4 +67,26 @@ export const teamsApi = {
   async removePermission(teamId: number, permId: number): Promise<void> {
     await apiClient.delete(`/teams/${teamId}/permissions/${permId}`);
   },
+
+  // ── Global team target tenants ──
+
+  async getTargetTenants(teamId: number): Promise<Array<{ id: number; name: string; slug: string }>> {
+    const res = await apiClient.get<ApiResponse<Array<{ id: number; name: string; slug: string }>>>(`/teams/${teamId}/target-tenants`);
+    return res.data.data!;
+  },
+
+  async setTargetTenants(teamId: number, tenantIds: number[]): Promise<Array<{ id: number; name: string; slug: string }>> {
+    const res = await apiClient.put<ApiResponse<Array<{ id: number; name: string; slug: string }>>>(`/teams/${teamId}/target-tenants`, { tenantIds });
+    return res.data.data!;
+  },
+
+  async getCrossTenantPermissions(teamId: number): Promise<Record<number, TeamPermission[]>> {
+    const res = await apiClient.get<ApiResponse<Record<number, TeamPermission[]>>>(`/teams/${teamId}/cross-tenant-permissions`);
+    return res.data.data!;
+  },
+
+  async setCrossTenantPermissions(teamId: number, tenantId: number, permissions: Array<{ scope: 'group' | 'monitor'; scopeId: number; level: 'ro' | 'rw' }>): Promise<Record<number, TeamPermission[]>> {
+    const res = await apiClient.put<ApiResponse<Record<number, TeamPermission[]>>>(`/teams/${teamId}/cross-tenant-permissions`, { tenantId, permissions });
+    return res.data.data!;
+  },
 };

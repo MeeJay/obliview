@@ -121,19 +121,31 @@ router.get('/callback', async (req, res) => {
         .onConflict(['foreign_source', 'foreign_user_id'])
         .merge({ local_user_id: localUserId });
 
-      // Auto-assign to tenants based on Obligate assertion
-      for (const t of assertion.tenants) {
-        const tenant = await db('tenants').where({ slug: t.slug }).first() as { id: number } | undefined;
-        if (tenant) {
-          await db('user_tenants')
-            .insert({ user_id: localUserId, tenant_id: tenant.id, role: t.role === 'admin' ? 'admin' : 'member' })
-            .onConflict(['user_id', 'tenant_id'])
-            .merge({ role: t.role === 'admin' ? 'admin' : 'member' });
-        }
-      }
-
       // Report new local ID back to Obligate
       obligateService.reportProvision(assertion.obligateUserId, localUserId).catch(() => {});
+    }
+
+    // Sync tenants + capabilities from Obligate (every SSO login)
+    for (const t of assertion.tenants) {
+      const tenant = await db('tenants').where({ slug: t.slug }).first() as { id: number } | undefined;
+      if (tenant) {
+        await db('user_tenants')
+          .insert({ user_id: localUserId, tenant_id: tenant.id, role: t.role === 'admin' ? 'admin' : 'member' })
+          .onConflict(['user_id', 'tenant_id'])
+          .merge({ role: t.role === 'admin' ? 'admin' : 'member' });
+
+        if (t.capabilities?.length) {
+          const userTeamIds = await db('team_memberships')
+            .join('user_teams', 'user_teams.id', 'team_memberships.team_id')
+            .where({ 'team_memberships.user_id': localUserId, 'user_teams.tenant_id': tenant.id })
+            .pluck('team_memberships.team_id') as number[];
+          for (const teamId of userTeamIds) {
+            await db('team_permissions')
+              .where({ team_id: teamId })
+              .update({ capabilities: JSON.stringify(t.capabilities) });
+          }
+        }
+      }
     }
 
     // Sync preferences from Obligate (theme, language, toast settings)
@@ -251,12 +263,39 @@ router.get('/app-info', async (req, res) => {
       return;
     }
 
-    // Fetch all teams across all tenants
-    const teams = await db('user_teams')
+    // Fetch all local (non-global) teams
+    const localTeams = await db('user_teams')
       .join('tenants', 'user_teams.tenant_id', 'tenants.id')
+      .where('user_teams.is_global', false)
       .select('user_teams.id', 'user_teams.name', 'tenants.slug as tenant_slug', 'tenants.name as tenant_name')
       .orderBy('tenants.name')
       .orderBy('user_teams.name') as Array<{ id: number; name: string; tenant_slug: string; tenant_name: string }>;
+
+    // Fetch global teams — expand once per target tenant + once for their home tenant
+    const globalTeams = await db('user_teams')
+      .where('user_teams.is_global', true)
+      .select('user_teams.id', 'user_teams.name', 'user_teams.tenant_id') as Array<{ id: number; name: string; tenant_id: number }>;
+
+    const globalTeamEntries: Array<{ id: number; name: string; tenant_slug: string; tenant_name: string }> = [];
+    for (const gt of globalTeams) {
+      // Home tenant
+      const homeTenant = await db('tenants').where({ id: gt.tenant_id }).first() as { slug: string; name: string } | undefined;
+      if (homeTenant) {
+        globalTeamEntries.push({ id: gt.id, name: gt.name, tenant_slug: homeTenant.slug, tenant_name: homeTenant.name });
+      }
+      // Target tenants
+      const targets = await db('team_tenant_scopes')
+        .join('tenants', 'team_tenant_scopes.tenant_id', 'tenants.id')
+        .where('team_tenant_scopes.team_id', gt.id)
+        .select('tenants.slug', 'tenants.name') as Array<{ slug: string; name: string }>;
+      for (const t of targets) {
+        if (t.slug !== homeTenant?.slug) {
+          globalTeamEntries.push({ id: gt.id, name: gt.name, tenant_slug: t.slug, tenant_name: t.name });
+        }
+      }
+    }
+
+    const allTeams = [...localTeams, ...globalTeamEntries];
 
     // Fetch all tenants
     const tenants = await db('tenants')
@@ -267,7 +306,7 @@ router.get('/app-info', async (req, res) => {
       success: true,
       data: {
         roles: ['admin', 'user'],
-        teams: teams.map(t => ({ id: t.id, name: t.name, tenantSlug: t.tenant_slug, tenantName: t.tenant_name })),
+        teams: allTeams.map(t => ({ id: t.id, name: t.name, tenantSlug: t.tenant_slug, tenantName: t.tenant_name })),
         tenants: tenants.map(t => ({ slug: t.slug, name: t.name })),
       },
     });

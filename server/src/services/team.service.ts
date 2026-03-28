@@ -6,6 +6,7 @@ interface TeamRow {
   name: string;
   description: string | null;
   can_create: boolean;
+  is_global: boolean;
   tenant_id: number;
   tenant_name?: string; // populated by JOIN when fetching all tenants
   created_at: Date;
@@ -28,6 +29,7 @@ function rowToTeam(row: TeamRow): UserTeam {
     canCreate: row.can_create,
     tenantId: row.tenant_id,
     tenantName: row.tenant_name,
+    isGlobal: row.is_global ?? false,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -48,17 +50,41 @@ export const teamService = {
    * Returns teams scoped to a tenant.
    * If tenantId is null (platform admin cross-tenant view), returns ALL teams across
    * all tenants, joined with tenant name.
+   * For non-default tenants, also includes global teams that target this tenant.
    */
   async getAll(tenantId: number | null): Promise<UserTeam[]> {
-    const query = db('user_teams')
+    if (tenantId === null) {
+      // Platform admin: all teams across all tenants
+      const rows = await db('user_teams')
+        .join('tenants', 'user_teams.tenant_id', 'tenants.id')
+        .select('user_teams.*', 'tenants.name as tenant_name')
+        .orderBy('user_teams.name');
+      return rows.map(rowToTeam);
+    }
+
+    // Tenant-scoped: local teams + global teams targeting this tenant
+    const localTeams = await db('user_teams')
       .join('tenants', 'user_teams.tenant_id', 'tenants.id')
+      .where('user_teams.tenant_id', tenantId)
       .select('user_teams.*', 'tenants.name as tenant_name')
       .orderBy('user_teams.name');
-    if (tenantId !== null) {
-      query.where('user_teams.tenant_id', tenantId);
+
+    const globalTeams = await db('user_teams')
+      .join('tenants', 'user_teams.tenant_id', 'tenants.id')
+      .join('team_tenant_scopes', 'user_teams.id', 'team_tenant_scopes.team_id')
+      .where('user_teams.is_global', true)
+      .where('team_tenant_scopes.tenant_id', tenantId)
+      .whereNot('user_teams.tenant_id', tenantId) // exclude locals already fetched
+      .select('user_teams.*', 'tenants.name as tenant_name')
+      .orderBy('user_teams.name');
+
+    const localIds = new Set(localTeams.map((r: TeamRow) => r.id));
+    const merged = [...localTeams];
+    for (const g of globalTeams) {
+      if (!localIds.has(g.id)) merged.push(g);
     }
-    const rows = await query;
-    return rows.map(rowToTeam);
+
+    return merged.map(rowToTeam);
   },
 
   async getById(id: number): Promise<UserTeam | null> {
@@ -66,12 +92,13 @@ export const teamService = {
     return row ? rowToTeam(row) : null;
   },
 
-  async create(data: { name: string; description?: string | null; canCreate?: boolean }, tenantId: number): Promise<UserTeam> {
+  async create(data: { name: string; description?: string | null; canCreate?: boolean; isGlobal?: boolean }, tenantId: number): Promise<UserTeam> {
     const [row] = await db<TeamRow>('user_teams')
       .insert({
         name: data.name,
         description: data.description ?? null,
         can_create: data.canCreate ?? false,
+        is_global: data.isGlobal ?? false,
         tenant_id: tenantId,
       })
       .returning('*');
@@ -138,7 +165,7 @@ export const teamService = {
     return rows.map(rowToPermission);
   },
 
-  async setPermissions(
+  setPermissions(
     teamId: number,
     permissions: Array<{ scope: 'group' | 'monitor'; scopeId: number; level: 'ro' | 'rw' }>,
   ): Promise<TeamPermission[]> {
@@ -179,5 +206,63 @@ export const teamService = {
   async removePermission(permissionId: number): Promise<boolean> {
     const count = await db('team_permissions').where({ id: permissionId }).del();
     return count > 0;
+  },
+
+  // ── Global team target tenants ──
+
+  async getTargetTenants(teamId: number): Promise<Array<{ id: number; name: string; slug: string }>> {
+    const rows = await db('team_tenant_scopes')
+      .join('tenants', 'team_tenant_scopes.tenant_id', 'tenants.id')
+      .where('team_tenant_scopes.team_id', teamId)
+      .select('tenants.id', 'tenants.name', 'tenants.slug')
+      .orderBy('tenants.name');
+    return rows;
+  },
+
+  async setTargetTenants(teamId: number, tenantIds: number[]): Promise<void> {
+    await db.transaction(async (trx) => {
+      await trx('team_tenant_scopes').where({ team_id: teamId }).del();
+      if (tenantIds.length > 0) {
+        await trx('team_tenant_scopes').insert(
+          tenantIds.map((tid) => ({ team_id: teamId, tenant_id: tid })),
+        );
+      }
+    });
+  },
+
+  /**
+   * Get permissions for a global team, grouped by tenant.
+   * Returns permissions with their tenant context (resolved via the group/monitor's tenant_id).
+   */
+  async getCrossTenantPermissions(teamId: number): Promise<Record<number, TeamPermission[]>> {
+    const perms = await db<PermissionRow>('team_permissions')
+      .where({ team_id: teamId })
+      .orderBy('scope')
+      .orderBy('scope_id');
+
+    // Resolve tenant_id for each permission's scope_id
+    const groupIds = perms.filter(p => p.scope === 'group').map(p => p.scope_id);
+    const monitorIds = perms.filter(p => p.scope === 'monitor').map(p => p.scope_id);
+
+    const groupTenants: Record<number, number> = {};
+    const monitorTenants: Record<number, number> = {};
+
+    if (groupIds.length > 0) {
+      const rows = await db('monitor_groups').whereIn('id', groupIds).select('id', 'tenant_id');
+      for (const r of rows) groupTenants[r.id] = r.tenant_id;
+    }
+    if (monitorIds.length > 0) {
+      const rows = await db('monitors').whereIn('id', monitorIds).select('id', 'tenant_id');
+      for (const r of rows) monitorTenants[r.id] = r.tenant_id;
+    }
+
+    const result: Record<number, TeamPermission[]> = {};
+    for (const p of perms) {
+      const tenantId = p.scope === 'group' ? groupTenants[p.scope_id] : monitorTenants[p.scope_id];
+      if (tenantId === undefined) continue;
+      if (!result[tenantId]) result[tenantId] = [];
+      result[tenantId].push(rowToPermission(p));
+    }
+    return result;
   },
 };

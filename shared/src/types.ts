@@ -479,6 +479,8 @@ export interface UserTeam {
   canCreate: boolean;
   tenantId: number;
   tenantName?: string; // populated by JOIN in getAll()
+  isGlobal: boolean;
+  targetTenants?: { id: number; name: string; slug: string }[];
   createdAt: string;
   updatedAt: string;
 }
