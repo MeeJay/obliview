@@ -21,6 +21,7 @@ import maintenanceRoutes from './maintenance.routes';
 import { liveAlertRouter } from './liveAlert.routes';
 import oblitoolsRoutes from './oblitools.routes';
 import obligateCallbackRoutes from './obligateCallback.routes';
+import permissionSetsRoutes from './permissionSets.routes';
 import systemRoutes from './system.routes';
 
 const router = Router();
@@ -33,6 +34,7 @@ router.use('/admin/config', appConfigRoutes);
 router.use('/system', systemRoutes);         // system info / about (admin only, no tenant required)
 router.use('/oblitools', oblitoolsRoutes);  // ObliTools desktop manifest (auth required)
 router.use('/auth', obligateCallbackRoutes); // Obligate sso-config + connected-apps (callback is mounted in app.ts at /auth)
+router.use('/permission-sets', permissionSetsRoutes);
 router.use('/profile/2fa', twoFactorRoutes); // must be before /profile
 
 // ── Live alerts (mixed: /all is cross-tenant, rest is tenant-scoped — handled inside router) ──
