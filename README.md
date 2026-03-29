@@ -1,7 +1,23 @@
-# Obliview
+<p align="center">
+  <img src="client/public/logo.svg" alt="Obliview" height="80">
+</p>
 
-Self-hosted uptime & infrastructure monitoring built for teams. Multi-tenant workspaces, hierarchical groups, RBAC, 13 monitor types, 10 notification channels, native system agent, and automated remediation - deployable in one command.
+<h3 align="center">Self-hosted Uptime & Infrastructure Monitoring</h3>
+
+<p align="center">
+  13 monitor types, native system agent, real-time dashboards, automated remediation.
+  <br>
+  Part of the <a href="https://obli.tools"><strong>obli.tools</strong></a> ecosystem.
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%">
+</p>
+
 ---
+
+Obliview monitors your infrastructure from HTTP endpoints to bare-metal servers. Multi-tenant workspaces, hierarchical groups, RBAC, 10 notification channels, and a native Go agent that pushes CPU, memory, disk, network, GPU, and temperature metrics in real-time.
+
 ## Features at a Glance
 
 - **13 monitor types** - HTTP, Ping, TCP, DNS, SSL, SMTP, Docker, Game Server, Push, Script, JSON API, Browser, Value Watcher
@@ -19,6 +35,29 @@ Self-hosted uptime & infrastructure monitoring built for teams. Multi-tenant wor
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/dashboard-monitors.png" alt="Dashboard Monitors"><br><sub><b>Dashboard</b> — Per-monitor response time & status</sub></td>
+    <td><img src="docs/screenshots/monitor-detail.png" alt="Monitor Detail"><br><sub><b>Monitor Detail</b> — Uptime history & response chart</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/agent-overview.png" alt="Agent Overview"><br><sub><b>Agent Overview</b> — CPU, disk, memory, network, temps</sub></td>
+    <td><img src="docs/screenshots/agent-cpu.png" alt="Agent CPU"><br><sub><b>Agent CPU</b> — Per-core usage, clock speed, temperature</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/agent-gpu.png" alt="Agent GPU"><br><sub><b>Agent GPU</b> — Utilization, VRAM, temperature</sub></td>
+    <td><img src="docs/screenshots/agent-network.png" alt="Agent Network"><br><sub><b>Agent Network</b> — Per-interface throughput charts</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/notifications.png" alt="Notifications"><br><sub><b>Notifications</b> — Channel management & binding</sub></td>
+    <td><img src="docs/screenshots/teams.png" alt="Teams & RBAC"><br><sub><b>Teams & RBAC</b> — Granular permission tree</sub></td>
+  </tr>
+</table>
+
+---
+
 ## Monitor Types
 
 | Type | Description |
@@ -26,7 +65,7 @@ Self-hosted uptime & infrastructure monitoring built for teams. Multi-tenant wor
 | **HTTP(S)** | URL monitoring with keyword matching, status code validation, custom headers & body, upside-down mode |
 | **Ping** | ICMP round-trip with response time tracking |
 | **TCP Port** | Raw TCP connectivity to any host:port |
-| **DNS** | Record lookup validation (A, AAAA, CNAME, MX, TXT…) |
+| **DNS** | Record lookup validation (A, AAAA, CNAME, MX, TXT...) |
 | **SSL Certificate** | Certificate expiry monitoring with configurable warning threshold |
 | **SMTP** | SMTP server availability check |
 | **Docker Container** | Container running/stopped status via Docker socket |
@@ -57,7 +96,7 @@ A lightweight Go binary runs on monitored hosts and pushes metrics to the server
 - Windows: MSI installer (WiX v4) with optional PawnIO kernel driver for temperature sensors
 - Linux / macOS: native binary, systemd / launchctl service
 - Auto-update: agent downloads and reinstalls itself silently when a new version is available
-- Auto-uninstall command via server → agent executes uninstaller and exits
+- Auto-uninstall command via server
 
 **Configuration per device**
 - Threshold overrides per metric (CPU, memory, disk, network, temperature)
@@ -187,17 +226,6 @@ Suppress alerts and exclude downtime from uptime statistics during planned maint
 
 ---
 
-## Enrollment Wizard
-
-New users are guided through a 4-step wizard on first login:
-
-1. **Language** - pick from 18 supported languages
-2. **Profile** - display name, email address
-3. **Alerts** - configure notification preferences
-4. **2FA** - optional TOTP or Email OTP setup
-
----
-
 ## Import / Export
 
 Full configuration backup and restore as JSON.
@@ -239,44 +267,7 @@ A lightweight system tray application (Go) for quick access without keeping a br
 
 ---
 
-## User Management
-
-- Create, edit, disable, and delete users
-- Platform roles: **admin** (full access) or **user** (team-based access)
-- Per-user workspace assignment with **admin** or **member** role per workspace
-- Password reset via email token (1-hour expiry)
-- Admin safeguards: cannot delete or demote the last active admin
-
----
-
-## Internationalization
-
-18 UI languages with full translation coverage:
-
-English · French · Spanish · German · Portuguese (BR) · Chinese (Simplified) · Japanese · Korean · Russian · Arabic · Italian · Dutch · Polish · Turkish · Swedish · Danish · Czech · Ukrainian
-
-Language is saved per user and applied immediately without page reload.
-
----
-
-## Real-Time Dashboard
-
-- Live status updates via Socket.io - no manual refresh needed
-- Per-monitor status: `UP`, `DOWN`, `ALERT`, `PAUSED`, `PENDING`, `MAINTENANCE`, `SSL_WARNING`, `SSL_EXPIRED`, `OFFLINE`
-- 24-hour uptime %, average/min/max response time
-- Group-level aggregated status (number of monitors down, in alert, pending, etc.)
-- Bulk operations: multi-select, pause/resume, delete, edit
-- Configurable heartbeat retention
-
----
-
 ## Deployment
-
-### One-command install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MeeJay/obliview/main/install.sh | sh
-```
 
 ### Docker Compose (built-in PostgreSQL)
 
@@ -317,11 +308,16 @@ Set `DATABASE_URL` in your `.env` to point at your existing PostgreSQL instance.
 | **Real-time** | Socket.io |
 | **Client** | React 18, Vite, Tailwind CSS, Zustand |
 | **Agent** | Go (cross-platform binary) |
-| **Desktop app** | Go (Wails / systray) |
+| **Desktop app** | Go (systray) |
 | **Browser monitors** | Playwright (headless Chromium) |
 | **Monorepo** | npm workspaces (`shared/`, `server/`, `client/`) |
 
+---
 
-> **🤖 An experiment with Claude Code**
+> **An experiment with Claude Code**
 >
 > This project was built as an experiment to see how far Claude Code could be pushed as a development tool. Claude was used as a coding assistant throughout the entire development process.
+
+<p align="center">
+  <a href="https://obli.tools">obli.tools</a>
+</p>
