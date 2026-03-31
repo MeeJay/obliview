@@ -2079,6 +2079,7 @@ function AgentSettingsSection({
   const groupCfg = device.groupSettings;
   const inheritedInterval  = groupCfg?.pushIntervalSeconds  ?? device.checkIntervalSeconds ?? 60;
   const inheritedHeartbeat = groupCfg?.heartbeatMonitoring  ?? device.heartbeatMonitoring  ?? true;
+  const inheritedCooldown  = groupCfg?.notificationCooldownSeconds ?? 300;
 
   // Per-field override:  a field is "overriding" when the global override flag
   // is ON *and* the device's raw value differs from what the group prescribes.
@@ -2094,6 +2095,10 @@ function AgentSettingsSection({
       overriding: device.overrideGroupSettings && device.heartbeatMonitoring !== inheritedHeartbeat,
       value: device.heartbeatMonitoring ?? inheritedHeartbeat,
     },
+    cooldown: {
+      overriding: device.notificationCooldownSeconds != null,
+      value: device.notificationCooldownSeconds ?? inheritedCooldown,
+    },
   });
   const [saving, setSaving] = useState(false);
   const [showThresholdModal, setShowThresholdModal] = useState(false);
@@ -2106,6 +2111,7 @@ function AgentSettingsSection({
     const gc = device.groupSettings;
     const iInterval  = gc?.pushIntervalSeconds  ?? device.checkIntervalSeconds ?? 60;
     const iHeartbeat = gc?.heartbeatMonitoring  ?? device.heartbeatMonitoring  ?? true;
+    const iCooldown  = gc?.notificationCooldownSeconds ?? 300;
     setFields({
       checkInterval: {
         overriding: device.overrideGroupSettings && device.checkIntervalSeconds != null,
@@ -2115,9 +2121,15 @@ function AgentSettingsSection({
         overriding: device.overrideGroupSettings && device.heartbeatMonitoring !== iHeartbeat,
         value: device.heartbeatMonitoring ?? iHeartbeat,
       },
+      cooldown: {
+        overriding: device.notificationCooldownSeconds != null,
+        value: device.notificationCooldownSeconds ?? iCooldown,
+      },
     });
   }, [device.id, device.overrideGroupSettings, device.heartbeatMonitoring, device.checkIntervalSeconds,
-      device.groupSettings?.heartbeatMonitoring, device.groupSettings?.pushIntervalSeconds]); // eslint-disable-line react-hooks/exhaustive-deps
+      device.notificationCooldownSeconds,
+      device.groupSettings?.heartbeatMonitoring, device.groupSettings?.pushIntervalSeconds,
+      device.groupSettings?.notificationCooldownSeconds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async (newFields: typeof fields) => {
     setSaving(true);
@@ -2125,12 +2137,9 @@ function AgentSettingsSection({
     try {
       const updated = await agentApi.updateDevice(device.id, {
         overrideGroupSettings: anyOverride,
-        // When a field is NOT overriding, write the group's own value into the
-        // device column.  This ensures the correct value is stored even when
-        // overrideGroupSettings stays true (because the other field is still
-        // overriding) — the worker reads the column directly in that case.
         checkIntervalSeconds: newFields.checkInterval.overriding ? newFields.checkInterval.value : inheritedInterval,
         heartbeatMonitoring:  newFields.heartbeat.overriding  ? newFields.heartbeat.value  : inheritedHeartbeat,
+        notificationCooldownSeconds: newFields.cooldown.overriding ? newFields.cooldown.value : null,
       });
       onDeviceUpdate(updated);
     } finally {
@@ -2138,13 +2147,13 @@ function AgentSettingsSection({
     }
   };
 
-  const toggleField = (field: 'checkInterval' | 'heartbeat', override: boolean) => {
+  const toggleField = (field: 'checkInterval' | 'heartbeat' | 'cooldown', override: boolean) => {
     const newFields = { ...fields, [field]: { ...fields[field], overriding: override } };
     setFields(newFields);
     save(newFields);
   };
 
-  const updateValue = (field: 'checkInterval', value: number) => {
+  const updateValue = (field: 'checkInterval' | 'cooldown', value: number) => {
     setFields(f => ({ ...f, [field]: { ...f[field], value } }));
   };
 
@@ -2237,6 +2246,42 @@ function AgentSettingsSection({
               ) : 'Override'}
             </button>
           )}
+        </div>
+
+        {/* Notification Cooldown field */}
+        <div className="flex items-center gap-3 py-3 border-b border-border">
+          <span className="text-sm font-medium text-text-primary w-40">Notif. Cooldown</span>
+          {fields.cooldown.overriding ? (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-medium">Override</span>
+          ) : (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-bg-tertiary text-text-muted">{t('common.inherit')}</span>
+          )}
+          <input
+            type="number"
+            min={0}
+            max={86400}
+            value={fields.cooldown.overriding ? fields.cooldown.value : inheritedCooldown}
+            disabled={!fields.cooldown.overriding}
+            onChange={e => updateValue('cooldown', Number(e.target.value))}
+            onBlur={() => { if (fields.cooldown.overriding) save(fields); }}
+            className="w-24 rounded border border-border bg-bg-secondary px-2 py-1 text-sm disabled:opacity-50"
+          />
+          <span className="text-xs text-text-muted">{t('groups.detail.seconds')}</span>
+          <button
+            onClick={() => toggleField('cooldown', !fields.cooldown.overriding)}
+            disabled={saving}
+            className={cn(
+              'ml-auto shrink-0 rounded-md px-2 py-1 text-xs font-medium transition-colors',
+              fields.cooldown.overriding
+                ? 'text-amber-500 hover:bg-amber-500/10'
+                : 'text-text-muted hover:bg-bg-hover hover:text-text-primary',
+            )}
+            title={fields.cooldown.overriding ? 'Reset to inherited' : 'Override locally'}
+          >
+            {fields.cooldown.overriding ? (
+              <span className="flex items-center gap-1"><RotateCcw size={12} />Reset</span>
+            ) : 'Override'}
+          </button>
         </div>
 
         {/* Alert Thresholds */}

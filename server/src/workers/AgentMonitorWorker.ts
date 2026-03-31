@@ -26,11 +26,11 @@ export class AgentMonitorWorker extends BaseMonitorWorker {
     // Fetch device for status + raw settings + override flag + updating_since
     const device = await db('agent_devices')
       .where({ id: agentDeviceId })
-      .select('check_interval_seconds', 'status', 'heartbeat_monitoring', 'group_id', 'agent_max_missed_pushes', 'override_group_settings', 'updating_since')
+      .select('check_interval_seconds', 'status', 'heartbeat_monitoring', 'group_id', 'agent_max_missed_pushes', 'override_group_settings', 'updating_since', 'notification_cooldown_seconds')
       .first() as {
         check_interval_seconds: number; status: string; heartbeat_monitoring: boolean;
         group_id: number | null; agent_max_missed_pushes: number | null; override_group_settings: boolean;
-        updating_since: Date | null;
+        updating_since: Date | null; notification_cooldown_seconds: number | null;
       } | undefined;
 
     if (!device) {
@@ -91,13 +91,19 @@ export class AgentMonitorWorker extends BaseMonitorWorker {
         for (const row of ancestorRows) {
           const cfg = typeof row.agent_group_config === 'string'
             ? JSON.parse(row.agent_group_config)
-            : row.agent_group_config as { pushIntervalSeconds?: number | null; heartbeatMonitoring?: boolean | null; maxMissedPushes?: number | null } | null | undefined;
+            : row.agent_group_config as { pushIntervalSeconds?: number | null; heartbeatMonitoring?: boolean | null; maxMissedPushes?: number | null; notificationCooldownSeconds?: number | null } | null | undefined;
           if (cfg) {
             if (cfg.pushIntervalSeconds != null) effectiveCheckInterval       = cfg.pushIntervalSeconds;
             if (cfg.heartbeatMonitoring  != null) effectiveHeartbeatMonitoring = cfg.heartbeatMonitoring;
             if (cfg.maxMissedPushes      != null) effectiveMaxMissedPushes    = cfg.maxMissedPushes;
+            if (cfg.notificationCooldownSeconds != null) this.config.notificationCooldownSeconds = cfg.notificationCooldownSeconds;
           }
         }
+      }
+
+      // Per-device cooldown override — always applies when set (null = inherit from group/global)
+      if (device.notification_cooldown_seconds != null) {
+        this.config.notificationCooldownSeconds = device.notification_cooldown_seconds;
       }
 
       const effectiveMaxMissed = effectiveMaxMissedPushes ?? 2;

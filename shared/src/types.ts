@@ -631,6 +631,8 @@ export interface AgentGroupConfig {
   heartbeatMonitoring: boolean | null;
   /** Consecutive missed pushes before declaring agent offline (null = system default of 2) */
   maxMissedPushes: number | null;
+  /** Minimum seconds between repeated alert notifications (null = system default of 300) */
+  notificationCooldownSeconds: number | null;
   /** Notification type toggles (null = inherit from parent group / system defaults) */
   notificationTypes: NotificationTypeConfig | null;
 }
@@ -718,6 +720,8 @@ export interface AgentDevice {
   /** When false: agent going offline → 'inactive' (grey), no notification */
   heartbeatMonitoring: boolean;
   checkIntervalSeconds: number;
+  /** Per-device notification cooldown override (null = inherit from group/global default of 300s) */
+  notificationCooldownSeconds: number | null;
   approvedBy: number | null;
   approvedAt: string | null;
   groupId: number | null;

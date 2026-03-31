@@ -50,6 +50,8 @@ export abstract class BaseMonitorWorker {
   protected confirmedStatus: MonitorStatus = 'pending';
   /** Unix-ms timestamp of the last problem notification sent (for cooldown check) */
   protected lastProblemNotifiedAt: number = 0;
+  /** True when the last problem notification was suppressed by cooldown */
+  protected lastProblemSuppressed: boolean = false;
   /** Tenant ID for scoped Socket.io room emissions (null until resolved) */
   protected tenantId: number | null = null;
   /**
@@ -355,10 +357,24 @@ export abstract class BaseMonitorWorker {
             `Monitor "${this.config.name}" (id: ${this.config.id}): ` +
             `notification suppressed — cooldown active (${Math.round((cooldownMs - elapsed) / 1000)}s remaining)`,
           );
+          this.lastProblemSuppressed = true;
           return;
         }
       }
       this.lastProblemNotifiedAt = Date.now();
+      this.lastProblemSuppressed = false;
+    }
+
+    // Suppress recovery notifications when the preceding problem was suppressed by cooldown.
+    // Without this, oscillating metrics (e.g. CPU 79% → 81% → 79%) would send "recovered"
+    // notifications without the user ever seeing the corresponding "alert".
+    if (newStatus === 'up' && this.lastProblemSuppressed) {
+      logger.info(
+        `Monitor "${this.config.name}" (id: ${this.config.id}): ` +
+        `recovery notification suppressed — preceding alert was cooldown-suppressed`,
+      );
+      this.lastProblemSuppressed = false;
+      return;
     }
 
     // ── Notification type filtering for agent monitors ─────────────────────────

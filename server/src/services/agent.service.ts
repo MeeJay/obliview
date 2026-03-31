@@ -63,6 +63,8 @@ interface AgentDeviceRow {
   updating_since: Date | null;
   // migration 042
   notification_types: unknown;
+  // migration 048
+  notification_cooldown_seconds: number | null;
 }
 
 function rowToApiKey(row: AgentApiKeyRow): AgentApiKey {
@@ -109,6 +111,7 @@ function rowToDevice(row: AgentDeviceRow, groupConfig?: AgentGroupConfig | null,
     status: row.status as AgentDevice['status'],
     heartbeatMonitoring: row.heartbeat_monitoring ?? true,
     checkIntervalSeconds: row.check_interval_seconds,
+    notificationCooldownSeconds: row.notification_cooldown_seconds ?? null,
     approvedBy: row.approved_by,
     approvedAt: row.approved_at ? row.approved_at.toISOString() : null,
     groupId: row.group_id,
@@ -362,11 +365,13 @@ export const agentService = {
     overrideGroupSettings?: boolean;
     displayConfig?: AgentDisplayConfig | null;
     notificationTypes?: NotificationTypeConfig | null;
+    notificationCooldownSeconds?: number | null;
   }): Promise<AgentDevice | null> {
     const update: Record<string, unknown> = { updated_at: new Date() };
     if (data.status !== undefined) update.status = data.status;
     if (data.groupId !== undefined) update.group_id = data.groupId;
     if (data.checkIntervalSeconds !== undefined) update.check_interval_seconds = data.checkIntervalSeconds;
+    if (data.notificationCooldownSeconds !== undefined) update.notification_cooldown_seconds = data.notificationCooldownSeconds;
     if (data.approvedBy !== undefined) update.approved_by = data.approvedBy;
     if (data.approvedAt !== undefined) update.approved_at = data.approvedAt;
     if (data.name !== undefined) update.name = data.name;

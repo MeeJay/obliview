@@ -224,12 +224,13 @@ function AgentGroupThresholdEditor({
 
 function AgentGroupSettingsPanel({ group, onUpdate }: { group: MonitorGroup; onUpdate: (g: MonitorGroup) => void }) {
   const { t } = useTranslation();
-  const cfg = group.agentGroupConfig ?? { pushIntervalSeconds: null, heartbeatMonitoring: null, maxMissedPushes: null, notificationTypes: null };
+  const cfg = group.agentGroupConfig ?? { pushIntervalSeconds: null, heartbeatMonitoring: null, maxMissedPushes: null, notificationCooldownSeconds: null, notificationTypes: null };
   const thr = group.agentThresholds ?? DEFAULT_AGENT_THRESHOLDS;
 
   const [interval, setInterval] = useState<string>(cfg.pushIntervalSeconds !== null ? String(cfg.pushIntervalSeconds) : '');
   const [heartbeat, setHeartbeat] = useState<boolean | null>(cfg.heartbeatMonitoring);
   const [maxMissed, setMaxMissed] = useState<string>(cfg.maxMissedPushes !== null ? String(cfg.maxMissedPushes) : '');
+  const [cooldown, setCooldown] = useState<string>(cfg.notificationCooldownSeconds !== null ? String(cfg.notificationCooldownSeconds) : '');
   const [saving, setSaving] = useState(false);
 
   const handleSaveConfig = async () => {
@@ -240,6 +241,7 @@ function AgentGroupSettingsPanel({ group, onUpdate }: { group: MonitorGroup; onU
           pushIntervalSeconds: interval.trim() ? Number(interval) : null,
           heartbeatMonitoring: heartbeat,
           maxMissedPushes: maxMissed.trim() ? Number(maxMissed) : null,
+          notificationCooldownSeconds: cooldown.trim() ? Number(cooldown) : null,
           notificationTypes: cfg.notificationTypes, // preserve existing notifTypes
         },
       });
@@ -332,6 +334,26 @@ function AgentGroupSettingsPanel({ group, onUpdate }: { group: MonitorGroup; onU
             onChange={e => setMaxMissed(e.target.value)}
             placeholder="2"
             className="w-20 rounded-lg border border-border bg-bg-tertiary px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-accent text-right placeholder:text-text-muted" />
+        </div>
+      </div>
+
+      {/* Notification Cooldown */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <div className="text-sm font-medium text-text-primary flex items-center gap-2">
+            Notification Cooldown
+            {cfg.notificationCooldownSeconds === null && (
+              <span className="text-xs text-text-muted">Default (300s)</span>
+            )}
+          </div>
+          <div className="text-xs text-text-muted">Minimum time between repeated alert notifications (0 = no cooldown)</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="number" value={cooldown} min={0} max={86400}
+            onChange={e => setCooldown(e.target.value)}
+            placeholder="300"
+            className="w-24 rounded-lg border border-border bg-bg-tertiary px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-accent text-right placeholder:text-text-muted" />
+          <span className="text-xs text-text-muted">{t('groups.detail.seconds')}</span>
         </div>
       </div>
 
@@ -719,7 +741,7 @@ export function GroupDetailPage() {
             config={group.agentGroupConfig?.notificationTypes ?? null}
             scope="group"
             onSave={async (notifTypes: NotificationTypeConfig | null) => {
-              const cfg = group.agentGroupConfig ?? { pushIntervalSeconds: null, heartbeatMonitoring: null, maxMissedPushes: null, notificationTypes: null };
+              const cfg = group.agentGroupConfig ?? { pushIntervalSeconds: null, heartbeatMonitoring: null, maxMissedPushes: null, notificationCooldownSeconds: null, notificationTypes: null };
               const updated = await groupsApi.updateAgentGroupConfig(group.id, {
                 agentGroupConfig: { ...cfg, notificationTypes: notifTypes },
               });

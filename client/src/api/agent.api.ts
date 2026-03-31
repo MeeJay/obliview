@@ -49,6 +49,7 @@ export const agentApi = {
       overrideGroupSettings?: boolean;
       displayConfig?: AgentDisplayConfig | null;
       notificationTypes?: NotificationTypeConfig | null;
+      notificationCooldownSeconds?: number | null;
     },
   ): Promise<AgentDevice> {
     const res = await apiClient.patch<ApiResponse<AgentDevice>>(`/agent/devices/${id}`, data);
