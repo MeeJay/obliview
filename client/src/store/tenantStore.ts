@@ -1,7 +1,5 @@
 import { create } from 'zustand';
 import type { TenantWithRole, ApiResponse } from '@obliview/shared';
-import { useGroupStore } from './groupStore';
-import { useAuthStore } from './authStore';
 import apiClient from '../api/client';
 
 interface TenantState {
@@ -30,10 +28,10 @@ export const useTenantStore = create<TenantState>((set) => ({
   setCurrentTenant: async (tenantId: number) => {
     try {
       await apiClient.post('/tenant/switch', { tenantId });
-      set({ currentTenantId: tenantId });
-      // Reload group collapsed state for the new tenant context
-      const userId = useAuthStore.getState().user?.id ?? null;
-      useGroupStore.getState().reinitForTenant(userId, tenantId);
+      // Full page reload to re-fetch ALL tenant-scoped data (sidebar, monitors,
+      // agents, notifications, settings, dashboard stats, etc.).
+      // This is more reliable than selectively re-fetching each store.
+      window.location.reload();
     } catch {
       // ignore
     }

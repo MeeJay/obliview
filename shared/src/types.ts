@@ -142,6 +142,9 @@ export interface Monitor {
   agentDeviceName: string | null;  // display name from agent_devices.name (null if not set)
   agentThresholds: AgentThresholds | null;
 
+  // Notes
+  notes: string | null;
+
   // Metadata
   createdBy: number | null;
   createdAt: string;
@@ -776,6 +779,8 @@ export interface AgentDevice {
    * Cleared on the next successful push, or by the cleanup job after 10 minutes.
    */
   updatingSince?: string | null;
+  /** Free-form notes about this device */
+  notes: string | null;
   inMaintenance?: boolean;
   /**
    * Device-level notification type override.

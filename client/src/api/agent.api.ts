@@ -50,6 +50,7 @@ export const agentApi = {
       displayConfig?: AgentDisplayConfig | null;
       notificationTypes?: NotificationTypeConfig | null;
       notificationCooldownSeconds?: number | null;
+      notes?: string | null;
     },
   ): Promise<AgentDevice> {
     const res = await apiClient.patch<ApiResponse<AgentDevice>>(`/agent/devices/${id}`, data);

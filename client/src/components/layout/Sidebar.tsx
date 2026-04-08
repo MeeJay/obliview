@@ -35,6 +35,7 @@ import { anonymize, anonymizeUsername } from '@/utils/anonymize';
 import { useAuthStore } from '@/store/authStore';
 import { useMonitorStore } from '@/store/monitorStore';
 import { useGroupStore } from '@/store/groupStore';
+import { useTenantStore } from '@/store/tenantStore';
 import { useUiStore } from '@/store/uiStore';
 import { GroupTree } from '@/components/groups/GroupTree';
 import { agentApi } from '@/api/agent.api';
@@ -195,6 +196,7 @@ export function Sidebar() {
   const { openAddAgentModal, sidebarFloating, toggleSidebarFloating } = useUiStore();
   const { fetchMonitors, monitors } = useMonitorStore();
   const { tree } = useGroupStore();
+  const { currentTenantId } = useTenantStore();
 
   const [approvedDevices, setApprovedDevices] = useState<AgentDevice[]>([]);
   // Real-time UP/ALERT/DOWN/INACTIVE status received via AGENT_STATUS_CHANGED events.
@@ -222,7 +224,7 @@ export function Sidebar() {
 
   useEffect(() => {
     fetchMonitors();
-  }, [fetchMonitors]);
+  }, [fetchMonitors, currentTenantId]);
 
   // Fetch approved+suspended devices for sidebar (admin only)
   const loadDevices = useCallback(() => {
@@ -239,7 +241,7 @@ export function Sidebar() {
     loadDevices();
     const id = setInterval(loadDevices, 30000);
     return () => clearInterval(id);
-  }, [loadDevices]);
+  }, [loadDevices, currentTenantId]);
 
   // Real-time sidebar updates: name/status/group changes without polling delay
   useEffect(() => {

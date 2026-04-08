@@ -65,6 +65,8 @@ interface AgentDeviceRow {
   notification_types: unknown;
   // migration 048
   notification_cooldown_seconds: number | null;
+  // migration 050
+  notes: string | null;
 }
 
 function rowToApiKey(row: AgentApiKeyRow): AgentApiKey {
@@ -128,6 +130,7 @@ function rowToDevice(row: AgentDeviceRow, groupConfig?: AgentGroupConfig | null,
     pendingCommand: row.pending_command ?? null,
     uninstallCommandedAt: row.uninstall_commanded_at ? row.uninstall_commanded_at.toISOString() : null,
     updatingSince: row.updating_since ? row.updating_since.toISOString() : null,
+    notes: row.notes ?? null,
     notificationTypes: row.notification_types
       ? (typeof row.notification_types === 'string'
           ? JSON.parse(row.notification_types)
@@ -366,6 +369,7 @@ export const agentService = {
     displayConfig?: AgentDisplayConfig | null;
     notificationTypes?: NotificationTypeConfig | null;
     notificationCooldownSeconds?: number | null;
+    notes?: string | null;
   }): Promise<AgentDevice | null> {
     const update: Record<string, unknown> = { updated_at: new Date() };
     if (data.status !== undefined) update.status = data.status;
@@ -382,6 +386,7 @@ export const agentService = {
     if ('notificationTypes' in data) update.notification_types = data.notificationTypes
       ? JSON.stringify(data.notificationTypes)
       : null;
+    if (data.notes !== undefined) update.notes = data.notes;
 
     const [row] = await db('agent_devices')
       .where({ id })

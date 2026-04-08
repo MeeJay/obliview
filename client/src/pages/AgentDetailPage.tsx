@@ -2344,6 +2344,10 @@ export function AgentDetailPage() {
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
   const [savingName, setSavingName] = useState(false);
+  // Inline notes editing
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesValue, setNotesValue] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
 
   // Display configuration
   const [maintenanceChannels, setMaintenanceChannels] = useState<NotificationChannel[]>([]);
@@ -2520,6 +2524,16 @@ export function AgentDetailPage() {
     finally { setSavingName(false); }
   };
 
+  const handleSaveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      const updated = await agentApi.updateDevice(id, { notes: notesValue.trim() || null });
+      if (updated) setDevice(updated);
+      setEditingNotes(false);
+    } catch { /* ignore */ }
+    finally { setSavingNotes(false); }
+  };
+
   const handleSaveSensorName = async (key: string, name: string) => {
     const current = device?.sensorDisplayNames ?? {};
     const updated: Record<string, string> = name
@@ -2593,7 +2607,7 @@ export function AgentDetailPage() {
               className="mt-0.5 p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">
               <ArrowLeft size={18} />
             </button>
-            <div>
+            <div className="group">
               {/* Display name with inline pencil edit */}
               <div className="flex items-center gap-2 flex-wrap">
                 {!editingName ? (
@@ -2636,6 +2650,39 @@ export function AgentDetailPage() {
                   {sc.label}
                 </span>
               </div>
+              {/* Notes — inline editable */}
+              {editingNotes ? (
+                <div className="flex items-start gap-1.5 mt-1">
+                  <textarea
+                    value={notesValue} autoFocus rows={2}
+                    onChange={e => setNotesValue(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSaveNotes(); } if (e.key === 'Escape') setEditingNotes(false); }}
+                    placeholder="Add notes..."
+                    className="flex-1 rounded border border-border bg-bg-tertiary px-2 py-1 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-accent resize-none placeholder:text-text-muted"
+                  />
+                  <button onClick={() => void handleSaveNotes()} disabled={savingNotes}
+                    className="p-0.5 rounded text-status-up hover:bg-bg-hover transition-colors disabled:opacity-50 mt-0.5" title="Save">
+                    <Check size={13} />
+                  </button>
+                  <button onClick={() => setEditingNotes(false)}
+                    className="p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors mt-0.5" title="Cancel">
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : device.notes ? (
+                <div className="group/notes flex items-center gap-1 mt-1 cursor-pointer"
+                  onClick={() => { setNotesValue(device.notes ?? ''); setEditingNotes(true); }}>
+                  <p className="text-xs text-text-muted truncate">{device.notes}</p>
+                  <Pencil size={10} className="shrink-0 text-text-muted opacity-0 group-hover/notes:opacity-100 transition-opacity" />
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setNotesValue(''); setEditingNotes(true); }}
+                  className="mt-1 text-[10px] text-text-muted opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity flex items-center gap-0.5"
+                  title="Add notes">
+                  <Pencil size={9} /> Add notes
+                </button>
+              )}
               {/* Subtitle: system info */}
               <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-1 text-xs text-text-muted">
                 {device.name         && <span className="font-mono">{anonymize(device.hostname)}</span>}

@@ -103,6 +103,10 @@ export function MonitorCard({
             )}
           </div>
 
+          {monitor.notes && (
+            <p className="text-xs text-text-muted mt-0.5 truncate">{monitor.notes}</p>
+          )}
+
           {/* Agent ALERT/DOWN: show violation message in appropriate color */}
           {isAgent && (monitor.status === 'alert' || monitor.status === 'down') && lastHeartbeat?.message && lastHeartbeat.message !== 'All metrics OK' ? (
             <div className={`mt-0.5 text-xs truncate ${monitor.status === 'alert' ? 'text-orange-500 dark:text-orange-400' : 'text-red-600 dark:text-red-400'}`}>

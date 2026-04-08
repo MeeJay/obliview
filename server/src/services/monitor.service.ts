@@ -55,6 +55,7 @@ interface MonitorRow {
   value_watcher_threshold_max: number | null;
   value_watcher_previous_value: string | null;
   value_watcher_headers: Record<string, string> | null;
+  notes: string | null;
   // Agent Monitor
   agent_device_id: number | null;
   agent_device_name?: string | null;  // from LEFT JOIN with agent_devices (read queries only)
@@ -128,6 +129,7 @@ function rowToMonitor(row: MonitorRow): Monitor {
     valueWatcherThresholdMax: row.value_watcher_threshold_max,
     valueWatcherPreviousValue: row.value_watcher_previous_value,
     valueWatcherHeaders: typeof row.value_watcher_headers === 'string' ? JSON.parse(row.value_watcher_headers) : row.value_watcher_headers,
+    notes: row.notes ?? null,
     // Agent Monitor
     agentDeviceId: row.agent_device_id,
     agentDeviceName: row.agent_device_name ?? null,
@@ -191,6 +193,7 @@ function monitorToRow(data: Partial<Monitor>): Record<string, unknown> {
   if (data.valueWatcherThresholdMax !== undefined) map.value_watcher_threshold_max = data.valueWatcherThresholdMax;
   if (data.valueWatcherPreviousValue !== undefined) map.value_watcher_previous_value = data.valueWatcherPreviousValue;
   if (data.valueWatcherHeaders !== undefined) map.value_watcher_headers = data.valueWatcherHeaders ? JSON.stringify(data.valueWatcherHeaders) : null;
+  if (data.notes !== undefined) map.notes = data.notes;
   // Agent Monitor
   if (data.agentDeviceId !== undefined) map.agent_device_id = data.agentDeviceId;
   if (data.agentThresholds !== undefined) map.agent_thresholds = data.agentThresholds ? JSON.stringify(data.agentThresholds) : null;
