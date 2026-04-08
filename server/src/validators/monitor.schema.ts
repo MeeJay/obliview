@@ -6,7 +6,7 @@ const MIN_RETRY_INTERVAL = Math.max(1, parseInt(process.env.MIN_RETRY_INTERVAL ?
 
 export const createMonitorSchema = z.object({
   name: z.string().min(1).max(255),
-  description: z.string().max(2000).nullable().optional(),
+  description: z.string().max(5000).nullable().optional(),
   type: z.enum(MONITOR_TYPES),
   groupId: z.number().int().positive().nullable().optional(),
   isActive: z.boolean().optional(),

@@ -246,17 +246,6 @@ export function MonitorEditPage() {
             placeholder={t('monitors.form.descriptionPlaceholder')}
           />
 
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1">Notes</label>
-            <textarea
-              value={form.notes || ''}
-              onChange={(e) => updateField('notes', e.target.value || null)}
-              placeholder="Add notes about this monitor..."
-              rows={2}
-              className="w-full rounded-md border border-border bg-bg-tertiary px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent resize-none"
-            />
-          </div>
-
           <div className="space-y-1">
             <label className="block text-sm font-medium text-text-secondary">
               {t('monitors.form.group')}

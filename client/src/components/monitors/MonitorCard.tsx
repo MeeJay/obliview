@@ -103,8 +103,8 @@ export function MonitorCard({
             )}
           </div>
 
-          {monitor.notes && (
-            <p className="text-xs text-text-muted mt-0.5 truncate">{monitor.notes}</p>
+          {monitor.description && (
+            <p className="text-xs text-text-muted mt-0.5 truncate">{monitor.description}</p>
           )}
 
           {/* Agent ALERT/DOWN: show violation message in appropriate color */}

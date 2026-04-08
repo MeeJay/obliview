@@ -258,7 +258,7 @@ export async function listDevices(req: Request, res: Response): Promise<void> {
 export async function updateDevice(req: Request, res: Response): Promise<void> {
   const id = Number(req.params.id);
   const {
-    status, groupId, checkIntervalSeconds, agentThresholds, name,
+    status, groupId, checkIntervalSeconds, agentThresholds, name, notes,
     heartbeatMonitoring, sensorDisplayNames, overrideGroupSettings, displayConfig,
     notificationTypes,
   } = req.body as {
@@ -267,6 +267,7 @@ export async function updateDevice(req: Request, res: Response): Promise<void> {
     checkIntervalSeconds?: number;
     agentThresholds?: AgentThresholds;
     name?: string | null;
+    notes?: string | null;
     heartbeatMonitoring?: boolean;
     sensorDisplayNames?: Record<string, string> | null;
     overrideGroupSettings?: boolean;
@@ -325,6 +326,7 @@ export async function updateDevice(req: Request, res: Response): Promise<void> {
     overrideGroupSettings,
     displayConfig,
     ...('notificationTypes' in req.body ? { notificationTypes } : {}),
+    ...('notes' in req.body ? { notes } : {}),
   });
 
   if (!device) {
