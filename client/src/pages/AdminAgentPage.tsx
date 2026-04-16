@@ -946,6 +946,9 @@ export function AdminAgentPage() {
                         ) : (
                           <span className="font-medium text-text-primary">{anonymize(device.name ?? device.hostname)}</span>
                         )}
+                        {device.deviceType === 'proxy' && (
+                          <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-blue-500/15 text-blue-400">Proxy</span>
+                        )}
                         {device.name && (
                           <div className="text-[10px] text-text-muted mt-0.5">{anonymize(device.hostname)}</div>
                         )}

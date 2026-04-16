@@ -81,6 +81,9 @@ func runCmdWS(cfg *Config) {
 
 	for {
 		err := cmdWSSession(cfg)
+		// Stop all proxy monitors when the WS session ends — they'll be
+		// re-synced on the next successful connection.
+		stopAllProxyRunners()
 		if err == nil {
 			// Clean server-side close — reconnect quickly.
 			log.Printf("Command WS: clean close — reconnecting in %s", cmdWSReconnectBase)
@@ -208,6 +211,14 @@ func handleCmdWSFrame(cfg *Config, ws *wsConn, payload []byte, hbTimer *time.Tim
 			return
 		}
 		handleConfigMsg(cfg, msg, hbTimer)
+
+	case "proxy_sync":
+		var msg proxySyncMsg
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			log.Printf("Command WS: malformed proxy_sync message: %v", err)
+			return
+		}
+		handleProxySync(ws, msg.Monitors)
 
 	case "command":
 		var msg cmdCommandMsg

@@ -22,6 +22,9 @@ export interface CheckResult {
   value?: string;
   /** Set to true for value watcher "changed" operator — triggers notification without changing status */
   valueChanged?: boolean;
+  /** When true, suppress individual monitor notifications — the proxy agent is
+   *  down and a single "proxy offline" notification should be sent instead. */
+  suppressNotification?: boolean;
 }
 
 export interface MonitorConfig {
@@ -56,6 +59,8 @@ export abstract class BaseMonitorWorker {
   protected lastStateChangeAt: number = 0;
   /** Pending notification queued during cooldown (sent when state is stable for cooldown duration) */
   protected pendingNotification: { status: MonitorStatus; message?: string; inMaintenance?: boolean } | null = null;
+  /** When true, the current check result requests notification suppression (proxy agent down). */
+  private _suppressNotification = false;
   /** Tenant ID for scoped Socket.io room emissions (null until resolved) */
   protected tenantId: number | null = null;
   /**
@@ -148,7 +153,7 @@ export abstract class BaseMonitorWorker {
 
     try {
       if (this.config.proxyAgentDeviceId) {
-        result = await this.performCheckViaProxy();
+        result = this.performCheckViaProxy();
       } else {
         result = await this.performCheck();
       }
@@ -176,6 +181,9 @@ export abstract class BaseMonitorWorker {
       // We still update the DB status and emit the heartbeat — only notifications
       // and live alerts are skipped until the second beat.
       const isStartupBeat = this.isFirstBeat && this.restoredFromDb;
+
+      // Track suppression flag for the current beat — checked in handleStatusChange.
+      this._suppressNotification = result.suppressNotification ?? false;
 
       // SSL statuses are deterministic (not transient) — no retries needed
       const isSslStatus = result.status === 'ssl_warning' || result.status === 'ssl_expired';
@@ -383,6 +391,18 @@ export abstract class BaseMonitorWorker {
       logger.info(
         `Monitor "${this.config.name}" (id: ${this.config.id}): ` +
         `status change ${oldStatus} → ${newStatus} suppressed (in maintenance)`,
+      );
+      return;
+    }
+
+    // ── Proxy agent down suppression ──────────────────────────────────────────
+    // When the proxy agent itself is unresponsive, suppress individual monitor
+    // notifications to avoid flooding. The proxy device's own heartbeat monitor
+    // handles the "proxy offline" notification.
+    if (this._suppressNotification) {
+      logger.info(
+        `Monitor "${this.config.name}" (id: ${this.config.id}): ` +
+        `notification suppressed (proxy agent not responding)`,
       );
       return;
     }
@@ -596,69 +616,45 @@ export abstract class BaseMonitorWorker {
    */
   abstract performCheck(): Promise<CheckResult>;
 
-  // ── Proxy Agent support ──────────────────────────────────────────────────
+  // ── Proxy Agent support (passive, agent-driven) ─────────────────────────
 
-  /** Cached UUID of the proxy device (resolved once from DB) */
-  private _proxyDeviceUuid: string | null = null;
+  /** monitorId → { result, receivedAt } — populated by agentHub when the agent pushes results */
+  static proxyResults = new Map<number, { result: CheckResult; receivedAt: number }>();
+
+  /** Record a result pushed by a proxy agent. Called from agentHub. */
+  static recordProxyResult(monitorId: number, result: CheckResult): void {
+    BaseMonitorWorker.proxyResults.set(monitorId, { result, receivedAt: Date.now() });
+  }
 
   /**
-   * Execute the monitor check via a remote agent over WebSocket.
-   * Sends the full monitor config; the agent performs the network call and
-   * returns a CheckResult. All downstream processing (retries, notifications,
-   * heartbeats) proceeds identically to a local check.
+   * Passive proxy check — reads the latest result pushed by the agent.
+   * If no result has been received within 3× the check interval, the proxy
+   * agent is considered unresponsive (distinct from the target being down).
    */
-  private async performCheckViaProxy(): Promise<CheckResult> {
-    const { agentHub } = await import('../services/agentHub.service');
+  private performCheckViaProxy(): CheckResult {
+    const entry = BaseMonitorWorker.proxyResults.get(this.config.id);
 
-    // Resolve the device UUID once and cache it.
-    if (!this._proxyDeviceUuid) {
-      const row = await db('agent_devices')
-        .where({ id: this.config.proxyAgentDeviceId })
-        .select('uuid')
-        .first() as { uuid: string } | undefined;
-      if (!row) {
-        return { status: 'down', message: 'Proxy agent device not found' };
-      }
-      this._proxyDeviceUuid = row.uuid;
+    if (!entry) {
+      return { status: 'down', message: 'Waiting for first proxy result...', suppressNotification: true };
     }
 
-    if (!agentHub.isConnected(this._proxyDeviceUuid)) {
-      return { status: 'down', message: 'Proxy agent is offline' };
+    const elapsed = (Date.now() - entry.receivedAt) / 1000;
+    const maxWait = this.config.intervalSeconds * 3;
+
+    if (elapsed > maxWait) {
+      // Proxy agent itself is unresponsive — suppress individual monitor
+      // notifications to avoid flooding. A single "proxy offline" alert is
+      // emitted by the agent device monitor instead.
+      return {
+        status: 'down',
+        message: `Proxy agent not responding (no result for ${Math.round(elapsed)}s, expected every ${this.config.intervalSeconds}s)`,
+        suppressNotification: true,
+      };
     }
 
-    const result = await agentHub.sendCommandAndWait(
-      this._proxyDeviceUuid,
-      'proxy_check',
-      {
-        type: this.config.type,
-        // Send only the fields the agent needs — strip internal/server-only fields
-        url: this.config.url,
-        method: this.config.method,
-        headers: this.config.headers,
-        body: this.config.body,
-        expectedStatusCodes: this.config.expectedStatusCodes,
-        keyword: this.config.keyword,
-        keywordIsPresent: this.config.keywordIsPresent,
-        ignoreSsl: this.config.ignoreSsl,
-        jsonPath: this.config.jsonPath,
-        jsonExpectedValue: this.config.jsonExpectedValue,
-        hostname: this.config.hostname,
-        port: this.config.port,
-        dnsRecordType: this.config.dnsRecordType,
-        dnsResolver: this.config.dnsResolver,
-        dnsExpectedValue: this.config.dnsExpectedValue,
-        sslWarnDays: this.config.sslWarnDays,
-        smtpHost: this.config.smtpHost,
-        smtpPort: this.config.smtpPort,
-        gameType: this.config.gameType,
-        gameHost: this.config.gameHost,
-        gamePort: this.config.gamePort,
-        timeoutMs: this.config.timeoutMs,
-      },
-      this.config.timeoutMs + 5000,  // agent timeout + network overhead
-    );
-
-    return result as CheckResult;
+    // Return the agent's result as-is — the downstream pipeline (retries,
+    // notifications, heartbeats) processes it identically to a local check.
+    return entry.result;
   }
 
   /**

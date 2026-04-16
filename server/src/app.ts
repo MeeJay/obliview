@@ -101,10 +101,10 @@ export function createApp() {
         //
         // Plain-HTTP / dev deployments keep lax + insecure (ObliTools iframes won't
         // work there because browsers require Secure for SameSite=None to be valid).
-        secure: config.forceHttps || config.nodeEnv === 'production',
+        secure: config.forceHttps,
         httpOnly: true,
         maxAge: config.sessionMaxAge,
-        sameSite: config.forceHttps || config.nodeEnv === 'production' ? 'none' : 'lax',
+        sameSite: config.forceHttps ? 'none' : 'lax',
         // CHIPS (Cookies Having Independent Partitioned State) — required for
         // Chrome/Edge 115+ to allow cookies in cross-site iframe contexts.
         // Without Partitioned, Chrome blocks unpartitioned third-party cookies
@@ -112,7 +112,7 @@ export function createApp() {
         // In first-party contexts the partition key equals the cookie's site, so
         // existing sessions and direct-browser users are NOT affected.
         // Requires Secure (already set above) — only enable in HTTPS deployments.
-        partitioned: config.forceHttps || config.nodeEnv === 'production',
+        partitioned: config.forceHttps,
       },
     }),
   );

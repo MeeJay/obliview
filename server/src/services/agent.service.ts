@@ -67,6 +67,8 @@ interface AgentDeviceRow {
   notification_cooldown_seconds: number | null;
   // migration 050
   notes: string | null;
+  // migration 052
+  device_type: string;
 }
 
 function rowToApiKey(row: AgentApiKeyRow): AgentApiKey {
@@ -110,6 +112,7 @@ function rowToDevice(row: AgentDeviceRow, groupConfig?: AgentGroupConfig | null,
     osInfo: typeof row.os_info === 'string' ? JSON.parse(row.os_info) : (row.os_info as AgentDevice['osInfo']),
     agentVersion: row.agent_version,
     apiKeyId: row.api_key_id,
+    deviceType: (row.device_type || 'agent') as AgentDevice['deviceType'],
     status: row.status as AgentDevice['status'],
     heartbeatMonitoring: row.heartbeat_monitoring ?? true,
     checkIntervalSeconds: row.check_interval_seconds,
@@ -240,6 +243,8 @@ export interface AgentMetrics {
 export interface AgentPushPayload {
   hostname: string;
   agentVersion: string;
+  /** 'agent' (default Go agent) or 'proxy' (Obliview proxy stub) */
+  deviceType?: 'agent' | 'proxy';
   osInfo?: {
     platform: string;
     distro?: string | null;
@@ -662,6 +667,7 @@ export const agentService = {
           ip: clientIp,
           os_info: payload.osInfo ? JSON.stringify(payload.osInfo) : null,
           agent_version: payload.agentVersion,
+          device_type: payload.deviceType || 'agent',
           api_key_id: apiKeyId,
           tenant_id: tenantId,
           status: 'pending',
@@ -676,6 +682,7 @@ export const agentService = {
         ip: clientIp,
         agent_version: payload.agentVersion,
         os_info: payload.osInfo ? JSON.stringify(payload.osInfo) : null,
+        device_type: payload.deviceType || 'agent',
         updated_at: new Date(),
       };
       if (device.updatingSince) {

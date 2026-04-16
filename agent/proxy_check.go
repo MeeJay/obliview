@@ -13,8 +13,47 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+// proxySyncMsg is sent by the server to tell this agent which monitors to
+// check autonomously. Replaces any previously synced set.
+type proxySyncMsg struct {
+	Type     string              `json:"type"` // "proxy_sync"
+	Monitors []proxyMonitorConfig `json:"monitors"`
+}
+
+// proxyMonitorConfig describes a single monitor the agent should check.
+type proxyMonitorConfig struct {
+	MonitorID           int                    `json:"monitorId"`
+	Type                string                 `json:"type"`
+	IntervalSeconds     int                    `json:"intervalSeconds"`
+	TimeoutMs           int                    `json:"timeoutMs"`
+	URL                 string                 `json:"url,omitempty"`
+	Method              string                 `json:"method,omitempty"`
+	Headers             map[string]interface{} `json:"headers,omitempty"`
+	Body                string                 `json:"body,omitempty"`
+	ExpectedStatusCodes []int                  `json:"expectedStatusCodes,omitempty"`
+	Keyword             string                 `json:"keyword,omitempty"`
+	KeywordIsPresent    bool                   `json:"keywordIsPresent,omitempty"`
+	IgnoreSsl           bool                   `json:"ignoreSsl,omitempty"`
+	JsonPath            string                 `json:"jsonPath,omitempty"`
+	JsonExpectedValue   string                 `json:"jsonExpectedValue,omitempty"`
+	Hostname            string                 `json:"hostname,omitempty"`
+	Port                int                    `json:"port,omitempty"`
+	DnsRecordType       string                 `json:"dnsRecordType,omitempty"`
+	DnsResolver         string                 `json:"dnsResolver,omitempty"`
+	DnsExpectedValue    string                 `json:"dnsExpectedValue,omitempty"`
+	SslWarnDays         int                    `json:"sslWarnDays,omitempty"`
+	SmtpHost            string                 `json:"smtpHost,omitempty"`
+	SmtpPort            int                    `json:"smtpPort,omitempty"`
+	GameType            string                 `json:"gameType,omitempty"`
+	GameHost            string                 `json:"gameHost,omitempty"`
+	GamePort            int                    `json:"gamePort,omitempty"`
+}
 
 // proxyCheckResult mirrors the server's CheckResult interface.
 type proxyCheckResult struct {
@@ -26,34 +65,169 @@ type proxyCheckResult struct {
 	Value        string  `json:"value,omitempty"`
 }
 
-// handleProxyCheck dispatches a monitor check based on the "type" field in
-// the payload. Returns the check result and an optional error message.
-func handleProxyCheck(payload map[string]interface{}) (interface{}, string) {
-	checkType, _ := payload["type"].(string)
-	log.Printf("Proxy check: type=%s", checkType)
+// proxyResultMsg is pushed from agent → server for each completed check.
+type proxyResultMsg struct {
+	Type      string           `json:"type"` // "proxy_result"
+	MonitorID int              `json:"monitorId"`
+	Result    proxyCheckResult `json:"result"`
+}
 
-	timeout := getPayloadDuration(payload, "timeoutMs", 10*time.Second)
+// ── Scheduler ────────────────────────────────────────────────────────────────
 
-	var result proxyCheckResult
+// proxyRunner manages a single monitor's autonomous check loop.
+type proxyRunner struct {
+	config proxyMonitorConfig
+	ws     *wsConn
+	cancel context.CancelFunc
+}
 
-	switch checkType {
-	case "http", "json_api":
-		result = doHTTPCheck(payload, timeout)
-	case "ping":
-		result = doPingCheck(payload, timeout)
-	case "tcp":
-		result = doTCPCheck(payload, timeout)
-	case "dns":
-		result = doDNSCheck(payload, timeout)
-	case "ssl":
-		result = doSSLCheck(payload, timeout)
-	case "smtp":
-		result = doSMTPCheck(payload, timeout)
-	default:
-		return nil, fmt.Sprintf("proxy_check: unsupported monitor type: %s", checkType)
+var (
+	proxyMu      sync.Mutex
+	proxyRunners = map[int]*proxyRunner{} // monitorId → runner
+)
+
+// handleProxySync is called when the server sends a proxy_sync message.
+// It reconciles the running set of proxy monitors: stops removed ones,
+// starts new ones, and updates changed ones.
+func handleProxySync(ws *wsConn, monitors []proxyMonitorConfig) {
+	proxyMu.Lock()
+	defer proxyMu.Unlock()
+
+	desired := make(map[int]proxyMonitorConfig, len(monitors))
+	for _, m := range monitors {
+		desired[m.MonitorID] = m
 	}
 
+	// Stop runners that are no longer in the desired set.
+	for id, runner := range proxyRunners {
+		if _, ok := desired[id]; !ok {
+			log.Printf("Proxy: stopping monitor %d (removed)", id)
+			runner.cancel()
+			delete(proxyRunners, id)
+		}
+	}
+
+	// Start or update runners.
+	for id, cfg := range desired {
+		if existing, ok := proxyRunners[id]; ok {
+			// Config may have changed — restart if so.
+			if !proxyConfigEqual(existing.config, cfg) {
+				log.Printf("Proxy: restarting monitor %d (config changed)", id)
+				existing.cancel()
+				delete(proxyRunners, id)
+			} else {
+				continue // already running with same config
+			}
+		}
+
+		log.Printf("Proxy: starting monitor %d (type=%s, interval=%ds)", id, cfg.Type, cfg.IntervalSeconds)
+		ctx, cancel := context.WithCancel(context.Background())
+		runner := &proxyRunner{config: cfg, ws: ws, cancel: cancel}
+		proxyRunners[id] = runner
+		go runner.run(ctx)
+	}
+
+	log.Printf("Proxy: %d monitor(s) active", len(proxyRunners))
+}
+
+// stopAllProxyRunners stops all running proxy monitors. Called on WS disconnect.
+func stopAllProxyRunners() {
+	proxyMu.Lock()
+	defer proxyMu.Unlock()
+	for id, runner := range proxyRunners {
+		runner.cancel()
+		delete(proxyRunners, id)
+	}
+	log.Printf("Proxy: all monitors stopped (WS disconnected)")
+}
+
+func proxyConfigEqual(a, b proxyMonitorConfig) bool {
+	aj, _ := json.Marshal(a)
+	bj, _ := json.Marshal(b)
+	return string(aj) == string(bj)
+}
+
+// run is the autonomous check loop for a single proxy monitor.
+func (r *proxyRunner) run(ctx context.Context) {
+	// Run the first check immediately, then on the configured interval.
+	r.executeAndPush()
+
+	interval := time.Duration(r.config.IntervalSeconds) * time.Second
+	if interval < 5*time.Second {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.executeAndPush()
+		}
+	}
+}
+
+func (r *proxyRunner) executeAndPush() {
+	timeout := time.Duration(r.config.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+
+	payload := configToPayload(r.config)
+	result := executeCheck(r.config.Type, payload, timeout)
+
+	msg := proxyResultMsg{
+		Type:      "proxy_result",
+		MonitorID: r.config.MonitorID,
+		Result:    result,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Proxy: marshal error for monitor %d: %v", r.config.MonitorID, err)
+		return
+	}
+	if err := r.ws.WriteFrame(0x1, data); err != nil {
+		log.Printf("Proxy: send error for monitor %d: %v", r.config.MonitorID, err)
+	}
+}
+
+func configToPayload(c proxyMonitorConfig) map[string]interface{} {
+	// Convert the typed config to a generic map for the check functions.
+	data, _ := json.Marshal(c)
+	var m map[string]interface{}
+	_ = json.Unmarshal(data, &m)
+	return m
+}
+
+// handleProxyCheck handles one-shot proxy_check commands (legacy/fallback).
+func handleProxyCheck(payload map[string]interface{}) (interface{}, string) {
+	checkType, _ := payload["type"].(string)
+	timeout := getPayloadDuration(payload, "timeoutMs", 10*time.Second)
+	result := executeCheck(checkType, payload, timeout)
 	return result, ""
+}
+
+// ── Check dispatcher ─────────────────────────────────────────────────────────
+
+func executeCheck(checkType string, payload map[string]interface{}, timeout time.Duration) proxyCheckResult {
+	switch checkType {
+	case "http", "json_api":
+		return doHTTPCheck(payload, timeout)
+	case "ping":
+		return doPingCheck(payload, timeout)
+	case "tcp":
+		return doTCPCheck(payload, timeout)
+	case "dns":
+		return doDNSCheck(payload, timeout)
+	case "ssl":
+		return doSSLCheck(payload, timeout)
+	case "smtp":
+		return doSMTPCheck(payload, timeout)
+	default:
+		return proxyCheckResult{Status: "down", Message: fmt.Sprintf("unsupported monitor type: %s", checkType)}
+	}
 }
 
 // ── HTTP / JSON API ──────────────────────────────────────────────────────────
@@ -95,7 +269,6 @@ func doHTTPCheck(payload map[string]interface{}, timeout time.Duration) proxyChe
 		return proxyCheckResult{Status: "down", Message: err.Error()}
 	}
 
-	// Apply headers
 	if headers, ok := payload["headers"].(map[string]interface{}); ok {
 		for k, v := range headers {
 			if sv, ok := v.(string); ok {
@@ -113,7 +286,6 @@ func doHTTPCheck(payload map[string]interface{}, timeout time.Duration) proxyChe
 	}
 	defer resp.Body.Close()
 
-	// Read body (limit to 1MB for keyword checking)
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	bodyStr := string(bodyBytes)
 
@@ -124,7 +296,6 @@ func doHTTPCheck(payload map[string]interface{}, timeout time.Duration) proxyChe
 		Message:      fmt.Sprintf("%d %s", resp.StatusCode, http.StatusText(resp.StatusCode)),
 	}
 
-	// Check expected status codes
 	if codes := getPayloadIntSlice(payload, "expectedStatusCodes"); len(codes) > 0 {
 		found := false
 		for _, c := range codes {
@@ -139,14 +310,12 @@ func doHTTPCheck(payload map[string]interface{}, timeout time.Duration) proxyChe
 			return result
 		}
 	} else {
-		// Default: accept 2xx and 3xx
 		if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 			result.Status = "down"
 			return result
 		}
 	}
 
-	// Keyword check
 	if keyword, _ := payload["keyword"].(string); keyword != "" {
 		isPresent, _ := payload["keywordIsPresent"].(bool)
 		found := strings.Contains(bodyStr, keyword)
@@ -159,7 +328,6 @@ func doHTTPCheck(payload map[string]interface{}, timeout time.Duration) proxyChe
 		}
 	}
 
-	// JSON API: extract value from JSON path
 	if jsonPath, _ := payload["jsonPath"].(string); jsonPath != "" {
 		val := extractJSONPath(bodyStr, jsonPath)
 		result.Value = val
@@ -171,7 +339,6 @@ func doHTTPCheck(payload map[string]interface{}, timeout time.Duration) proxyChe
 		}
 	}
 
-	// SSL certificate check for https URLs
 	if strings.HasPrefix(url, "https://") && !ignoreSsl && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
 		cert := resp.TLS.PeerCertificates[0]
 		daysUntilExpiry := int(time.Until(cert.NotAfter).Hours() / 24)
@@ -217,7 +384,6 @@ func doPingCheck(payload map[string]interface{}, timeout time.Duration) proxyChe
 		return proxyCheckResult{Status: "down", ResponseTime: responseTime, Message: "Host unreachable"}
 	}
 
-	// Extract ping time from output
 	outStr := string(out)
 	ping := extractPingTime(outStr)
 
@@ -301,36 +467,29 @@ func doDNSCheck(payload map[string]interface{}, timeout time.Duration) proxyChec
 
 	switch recordType {
 	case "A", "AAAA":
-		ips, e := resolver.LookupHost(context.Background(), hostname)
-		err = e
-		records = ips
+		records, err = resolver.LookupHost(context.Background(), hostname)
 	case "MX":
-		mxs, e := resolver.LookupMX(context.Background(), hostname)
-		err = e
+		var mxs []*net.MX
+		mxs, err = resolver.LookupMX(context.Background(), hostname)
 		for _, mx := range mxs {
 			records = append(records, fmt.Sprintf("%s (priority %d)", mx.Host, mx.Pref))
 		}
 	case "CNAME":
-		cname, e := resolver.LookupCNAME(context.Background(), hostname)
-		err = e
+		var cname string
+		cname, err = resolver.LookupCNAME(context.Background(), hostname)
 		if cname != "" {
 			records = []string{cname}
 		}
 	case "TXT":
-		txts, e := resolver.LookupTXT(context.Background(), hostname)
-		err = e
-		records = txts
+		records, err = resolver.LookupTXT(context.Background(), hostname)
 	case "NS":
-		nss, e := resolver.LookupNS(context.Background(), hostname)
-		err = e
+		var nss []*net.NS
+		nss, err = resolver.LookupNS(context.Background(), hostname)
 		for _, ns := range nss {
 			records = append(records, ns.Host)
 		}
 	default:
-		// For SOA, SRV, PTR — use simple host lookup as fallback
-		ips, e := resolver.LookupHost(context.Background(), hostname)
-		err = e
-		records = ips
+		records, err = resolver.LookupHost(context.Background(), hostname)
 	}
 
 	responseTime := float64(time.Since(start).Milliseconds())
@@ -348,7 +507,6 @@ func doDNSCheck(payload map[string]interface{}, timeout time.Duration) proxyChec
 		Message:      strings.Join(records, ", "),
 	}
 
-	// Check expected value
 	if expected, _ := payload["dnsExpectedValue"].(string); expected != "" {
 		found := false
 		for _, r := range records {
@@ -405,13 +563,12 @@ func doSSLCheck(payload map[string]interface{}, timeout time.Duration) proxyChec
 		}
 	}
 
-	status := "up"
 	msg := fmt.Sprintf("SSL valid, expires in %d days (subject: %s, issuer: %s)", daysUntilExpiry, cert.Subject.CommonName, cert.Issuer.CommonName)
 	if daysUntilExpiry <= warnDays {
 		msg = fmt.Sprintf("SSL certificate expires in %d days (subject: %s)", daysUntilExpiry, cert.Subject.CommonName)
 	}
 
-	return proxyCheckResult{Status: status, ResponseTime: responseTime, Message: msg}
+	return proxyCheckResult{Status: "up", ResponseTime: responseTime, Message: msg}
 }
 
 // ── SMTP ─────────────────────────────────────────────────────────────────────
@@ -436,7 +593,6 @@ func doSMTPCheck(payload map[string]interface{}, timeout time.Duration) proxyChe
 	}
 	defer conn.Close()
 
-	// Read the SMTP banner (220 = ready)
 	_ = conn.SetReadDeadline(time.Now().Add(timeout))
 	buf := make([]byte, 512)
 	n, err := conn.Read(buf)
@@ -486,8 +642,6 @@ func getPayloadIntSlice(p map[string]interface{}, key string) []int {
 	return out
 }
 
-// extractJSONPath does a simple dot-notation JSON path extraction.
-// Supports "data.items[0].value" style paths.
 func extractJSONPath(body, path string) string {
 	var data interface{}
 	if err := json.Unmarshal([]byte(body), &data); err != nil {
@@ -498,7 +652,6 @@ func extractJSONPath(body, path string) string {
 	current := data
 
 	for _, part := range parts {
-		// Handle array index: "items[0]"
 		if idx := strings.Index(part, "["); idx >= 0 {
 			key := part[:idx]
 			idxStr := part[idx+1 : len(part)-1]

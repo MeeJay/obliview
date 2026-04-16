@@ -631,7 +631,7 @@ export function MonitorEditPage() {
               <option value="">{t('monitors.form.proxyNone', 'None (server-side check)')}</option>
               {proxyAgents.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name ?? a.hostname}
+                  {a.name ?? a.hostname} ({a.deviceType === 'proxy' ? 'proxy' : 'agent'})
                 </option>
               ))}
             </select>

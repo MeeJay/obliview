@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { WebSocket } from 'ws';
 import { logger } from '../utils/logger';
 import { agentService } from './agent.service';
+import { db } from '../db';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ interface AgentHeartbeat {
   type: 'heartbeat';
   hostname?: string;
   agentVersion?: string;
+  deviceType?: 'agent' | 'proxy';
   osInfo?: Record<string, unknown>;
   metrics?: Record<string, unknown>;
 }
@@ -88,6 +90,8 @@ class AgentHubService {
           await this._handleHeartbeat(conn, msg as AgentHeartbeat);
         } else if (msg.type === 'ack') {
           this._handleAck(msg as AgentAck);
+        } else if (msg.type === 'proxy_result') {
+          this._handleProxyResult(msg);
         }
       } catch { /* malformed JSON — ignore */ }
     });
@@ -97,6 +101,11 @@ class AgentHubService {
     await this._handleHeartbeat(conn, { type: 'heartbeat' });
 
     logger.info({ deviceUuid }, 'Obliview agent WS connected');
+
+    // Push proxy monitor configs to the agent so it can start checking immediately.
+    this.syncProxyMonitors(deviceUuid).catch((e) =>
+      logger.error(e, `Failed to sync proxy monitors on connect for ${deviceUuid}`),
+    );
   }
 
   private _unregister(deviceUuid: string, ws: WebSocket): void {
@@ -138,6 +147,7 @@ class AgentHubService {
         {
           hostname: msg.hostname ?? '',
           agentVersion: msg.agentVersion ?? '',
+          deviceType: msg.deviceType,
           osInfo: msg.osInfo as any,
           metrics: (msg.metrics ?? {}) as any,
         },
@@ -161,6 +171,18 @@ class AgentHubService {
     } catch (e) {
       logger.error(e, 'agentHub: failed to handle heartbeat');
     }
+  }
+
+  // ── Proxy result handling ────────────────────────────────────────────────
+
+  private _handleProxyResult(msg: {
+    monitorId?: number;
+    result?: { status: string; responseTime?: number; statusCode?: number; message?: string; ping?: number; value?: string };
+  }): void {
+    if (!msg.monitorId || !msg.result) return;
+    // Lazy import to avoid circular dependency at module load time.
+    const { BaseMonitorWorker } = require('../workers/BaseMonitorWorker');
+    BaseMonitorWorker.recordProxyResult(msg.monitorId, msg.result);
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -201,6 +223,66 @@ class AgentHubService {
       this.pendingAcks.set(id, { deviceUuid, resolve, reject, timer });
       conn.ws.send(msg);
     });
+  }
+
+  /**
+   * Send the list of proxy monitor configs to a specific agent.
+   * Called on agent connect and when a proxy monitor is created/updated/deleted.
+   */
+  async syncProxyMonitors(deviceUuid: string): Promise<void> {
+    const conn = this.byDevice.get(deviceUuid);
+    if (!conn || conn.ws.readyState !== 1) return;
+
+    // Find the agent_device row for this UUID to get the device ID.
+    const device = await db('agent_devices').where({ uuid: deviceUuid }).select('id').first() as { id: number } | undefined;
+    if (!device) return;
+
+    // Fetch all active monitors that use this device as proxy.
+    const monitors = await db('monitors')
+      .where({ proxy_agent_device_id: device.id, is_active: true })
+      .select(
+        'id', 'type', 'interval_seconds', 'timeout_ms',
+        'url', 'method', 'headers', 'body', 'expected_status_codes',
+        'keyword', 'keyword_is_present', 'ignore_ssl',
+        'json_path', 'json_expected_value',
+        'hostname', 'port',
+        'dns_record_type', 'dns_resolver', 'dns_expected_value',
+        'ssl_warn_days',
+        'smtp_host', 'smtp_port',
+        'game_type', 'game_host', 'game_port',
+      );
+
+    const configs = monitors.map((m: Record<string, unknown>) => ({
+      monitorId: m.id,
+      type: m.type,
+      intervalSeconds: m.interval_seconds ?? 60,
+      timeoutMs: m.timeout_ms ?? 10000,
+      url: m.url, method: m.method, headers: m.headers, body: m.body,
+      expectedStatusCodes: m.expected_status_codes,
+      keyword: m.keyword, keywordIsPresent: m.keyword_is_present,
+      ignoreSsl: m.ignore_ssl,
+      jsonPath: m.json_path, jsonExpectedValue: m.json_expected_value,
+      hostname: m.hostname, port: m.port,
+      dnsRecordType: m.dns_record_type, dnsResolver: m.dns_resolver, dnsExpectedValue: m.dns_expected_value,
+      sslWarnDays: m.ssl_warn_days,
+      smtpHost: m.smtp_host, smtpPort: m.smtp_port,
+      gameType: m.game_type, gameHost: m.game_host, gamePort: m.game_port,
+    }));
+
+    conn.ws.send(JSON.stringify({ type: 'proxy_sync', monitors: configs }));
+    logger.info({ deviceUuid, count: configs.length }, 'Synced proxy monitors to agent');
+  }
+
+  /**
+   * Sync proxy monitors to ALL connected agents.
+   * Called when a proxy monitor is created, updated, or deleted.
+   */
+  async syncAllProxyMonitors(): Promise<void> {
+    for (const [uuid] of this.byDevice) {
+      await this.syncProxyMonitors(uuid).catch((e) =>
+        logger.error(e, `Failed to sync proxy monitors to ${uuid}`),
+      );
+    }
   }
 }
 

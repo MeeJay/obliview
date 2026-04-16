@@ -719,6 +719,8 @@ export interface AgentDevice {
   } | null;
   agentVersion: string | null;
   apiKeyId: number | null;
+  /** 'agent' = lightweight Go agent, 'proxy' = full Obliview proxy stub */
+  deviceType: 'agent' | 'proxy';
   status: 'pending' | 'approved' | 'refused' | 'suspended';
   /** When false: agent going offline → 'inactive' (grey), no notification */
   heartbeatMonitoring: boolean;

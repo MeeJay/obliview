@@ -9,6 +9,7 @@ import { MonitorWorkerManager } from '../workers/MonitorWorkerManager';
 import { AppError } from '../middleware/errorHandler';
 import type { CreateMonitorInput, BulkUpdateInput } from '../validators/monitor.schema';
 import { maintenanceService } from '../services/maintenance.service';
+import { agentHub } from '../services/agentHub.service';
 
 /** Broadcast a monitor event to all admin clients (and tenant-scoped admin room). */
 function emitMonitorEvent(req: Request, event: string, payload: unknown): void {
@@ -87,6 +88,11 @@ export const monitorsController = {
       const wm = MonitorWorkerManager.getInstance();
       await wm.startMonitor(monitor);
 
+      // If this monitor uses a proxy agent, sync the config to the agent.
+      if (monitor.proxyAgentDeviceId) {
+        agentHub.syncAllProxyMonitors().catch(() => {});
+      }
+
       // Wait briefly for the first check to complete, then return updated monitor
       await new Promise((resolve) => setTimeout(resolve, 2000));
       const updated = await monitorService.getById(monitor.id);
@@ -111,6 +117,9 @@ export const monitorsController = {
       const wm = MonitorWorkerManager.getInstance();
       await wm.restartMonitor(id);
 
+      // Sync proxy configs to agents (covers add, change, and remove of proxy assignment)
+      agentHub.syncAllProxyMonitors().catch(() => {});
+
       emitMonitorEvent(req, SOCKET_EVENTS.MONITOR_UPDATED, { monitorId: id, changes: monitor });
       res.json({ success: true, data: monitor });
     } catch (err) {
@@ -130,6 +139,9 @@ export const monitorsController = {
       if (!deleted) {
         throw new AppError(404, 'Monitor not found');
       }
+
+      // Sync proxy configs so agents stop checking this monitor.
+      agentHub.syncAllProxyMonitors().catch(() => {});
 
       emitMonitorEvent(req, SOCKET_EVENTS.MONITOR_DELETED, { monitorId: id });
       res.json({ success: true, message: 'Monitor deleted' });
