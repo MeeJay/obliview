@@ -258,6 +258,7 @@ export function MonitorEditPage() {
               onChange={(groupId) => updateField('groupId', groupId)}
               tree={tree}
               placeholder={t('monitors.form.noGroup')}
+              kindFilter="monitor"
             />
           </div>
         </div>
