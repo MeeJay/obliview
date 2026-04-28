@@ -4,7 +4,7 @@ import type { SettingsKey } from './settingsDefaults';
 // ============================================
 // User types
 // ============================================
-export type AppTheme = 'modern' | 'neon';
+export type AppTheme = 'obli-operator' | 'modern' | 'neon';
 
 export interface UserPreferences {
   toastEnabled: boolean;
@@ -39,6 +39,8 @@ export interface User {
   updatedAt: string;
   preferences?: UserPreferences | null;
   email?: string | null;
+  /** Profile photo URL (synced from Obligate). Null when the user has no avatar. */
+  avatar?: string | null;
   preferredLanguage: string;
   enrollmentVersion: number;
   totpEnabled?: boolean;

@@ -8,7 +8,7 @@ import {
   Pencil, Check, X, LayoutDashboard,
   MemoryStick, Wifi, RotateCcw,
 } from 'lucide-react';
-import type { AgentDevice, AgentThresholds, AgentMetricThreshold, AgentTempThreshold, AgentDisplayConfig, NotificationChannel, NotificationTypeConfig } from '@obliview/shared';
+import type { AgentDevice, AgentThresholds, AgentMetricThreshold, AgentTempThreshold, AgentDisplayConfig, NotificationChannel, NotificationTypeConfig, Heartbeat } from '@obliview/shared';
 import { DEFAULT_AGENT_THRESHOLDS, SOCKET_EVENTS } from '@obliview/shared';
 import { AgentDisplayConfigModal } from '../components/agent/AgentDisplayConfigModal';
 import { NotificationTypesPanel } from '../components/agent/NotificationTypesPanel';
@@ -21,6 +21,7 @@ import { getSocket } from '../socket/socketClient';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { NotificationBindingsPanel } from '../components/notifications/NotificationBindingsPanel';
 import { MaintenanceWindowList } from '../components/maintenance/MaintenanceWindowList';
+import { HeartbeatBar } from '../components/monitors/HeartbeatBar';
 import { cn } from '../utils/cn';
 import { prettifySensorLabel } from '../utils/sensorLabels';
 
@@ -28,7 +29,7 @@ import { prettifySensorLabel } from '../utils/sensorLabels';
 // Types / constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-type View = 'overview' | 'cpu' | 'ram' | 'gpu' | 'others' | 'temps';
+type View = 'overview' | 'cpu' | 'ram' | 'gpu' | 'others' | 'temps' | 'uptime';
 const MAX_HISTORY = 60;
 
 const DEFAULT_DISPLAY_CONFIG: AgentDisplayConfig = {
@@ -1704,6 +1705,235 @@ function TempsView({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Uptime View
+// Online/offline timeline backed by the heartbeat history of the agent's
+// monitor. Period selector mirrors the other tabs (Live / 1H / 24H / 7d / 30d).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function UptimeView({
+  heartbeats, period, isOnline, currentStatus, loading, lastPushIso, checkIntervalSeconds,
+}: {
+  heartbeats: Heartbeat[];
+  period: 'realtime' | '1h' | '24h' | '7d' | '30d';
+  isOnline: boolean;
+  currentStatus: string;
+  loading: boolean;
+  lastPushIso: string | null;
+  checkIntervalSeconds: number;
+}) {
+  const { t } = useTranslation();
+
+  // Stats over the visible heartbeat window
+  const total = heartbeats.length;
+  const upCount      = heartbeats.filter(h => h.status === 'up').length;
+  const downCount    = heartbeats.filter(h => h.status === 'down' || h.status === 'pending').length;
+  const alertCount   = heartbeats.filter(h => h.status === 'alert').length;
+  const maintCount   = heartbeats.filter(h => h.inMaintenance).length;
+  const uptimePct    = total > 0 ? (upCount / total) * 100 : 0;
+
+  // Average response time across recorded heartbeats (push interval observed)
+  const responseTimes = heartbeats.map(h => h.responseTime).filter((x): x is number => x != null && x > 0);
+  const avgResponseTime = responseTimes.length > 0
+    ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+    : null;
+
+  // Approximate duration covered (pretty)
+  const periodLabel = period === 'realtime' ? t('agent.uptime.live', 'Live') : period.toUpperCase();
+
+  // Find longest down streak in the window
+  let longestDown = 0;
+  let cur = 0;
+  for (const h of heartbeats) {
+    if (h.status === 'up') { cur = 0; continue; }
+    cur += 1;
+    if (cur > longestDown) longestDown = cur;
+  }
+  const longestDownDuration = longestDown * checkIntervalSeconds;
+
+  const fmtDuration = (s: number): string => {
+    if (s <= 0) return '—';
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${s % 60}s`;
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m`;
+  };
+
+  const uptimeColor =
+    uptimePct >= 99 ? 'text-status-up' :
+    uptimePct >= 95 ? 'text-yellow-400' :
+    'text-red-400';
+
+  return (
+    <div className="space-y-4">
+
+      {/* Hero strip — current status + uptime % over the selected window */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="rounded-xl bg-bg-secondary p-4 shadow-card">
+          <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-text-muted mb-2">
+            {t('agent.uptime.currentStatus', 'Current status')}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={cn(
+              'h-3 w-3 rounded-full shrink-0',
+              isOnline ? 'bg-status-up shadow-[0_0_8px_2px] shadow-status-up/50' : 'bg-text-muted',
+            )} />
+            <span className={cn(
+              'font-display text-[26px] font-semibold leading-none',
+              isOnline ? 'text-status-up' : 'text-text-muted',
+            )}>
+              {isOnline ? t('agent.uptime.online', 'Online') : t('agent.uptime.offline', 'Offline')}
+            </span>
+          </div>
+          <div className="mt-2 text-[11px] font-mono text-text-muted">
+            {lastPushIso ? `${t('agent.uptime.lastPush', 'Last push')}: ${fmtRelTime(lastPushIso)}` : currentStatus}
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-bg-secondary p-4 shadow-card">
+          <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-text-muted mb-2">
+            {t('agent.uptime.uptimePct', 'Uptime')} · {periodLabel}
+          </div>
+          <div className={cn('font-display text-[36px] font-semibold leading-none tabular-nums', uptimeColor)}>
+            {total > 0 ? `${uptimePct.toFixed(2)}%` : '—'}
+          </div>
+          <div className="mt-3 h-1 w-full bg-white/[0.04] rounded">
+            <div
+              className={cn(
+                'h-full rounded',
+                uptimePct >= 99 ? 'bg-status-up' :
+                uptimePct >= 95 ? 'bg-yellow-400' :
+                'bg-red-400',
+              )}
+              style={{ width: `${Math.min(100, Math.max(0, uptimePct))}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-bg-secondary p-4 shadow-card">
+          <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-text-muted mb-2">
+            {t('agent.uptime.totalChecks', 'Checks')}
+          </div>
+          <div className="font-display text-[36px] font-semibold leading-none text-text-primary tabular-nums">
+            {total}
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-1 text-[11px] font-mono">
+            <span className="text-status-up">↑ {upCount}</span>
+            <span className="text-red-400">↓ {downCount + alertCount}</span>
+            {maintCount > 0 && <span className="text-status-maintenance">⚒ {maintCount}</span>}
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-bg-secondary p-4 shadow-card">
+          <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-text-muted mb-2">
+            {t('agent.uptime.longestDown', 'Longest outage')}
+          </div>
+          <div className="font-display text-[26px] font-semibold leading-none text-text-primary tabular-nums">
+            {fmtDuration(longestDownDuration)}
+          </div>
+          <div className="mt-2 text-[11px] font-mono text-text-muted">
+            {avgResponseTime != null
+              ? `${t('agent.uptime.avgResponse', 'Avg response')}: ${avgResponseTime}ms`
+              : t('agent.uptime.noResponseData', 'No response data')}
+          </div>
+        </div>
+      </div>
+
+      {/* Heartbeat timeline */}
+      <div className="rounded-xl bg-bg-secondary p-4 shadow-card">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-text-muted">
+              {t('agent.uptime.timeline', 'Heartbeat timeline')}
+            </div>
+            <div className="text-[12px] text-text-secondary mt-0.5">
+              {periodLabel} · {total} {t('agent.uptime.heartbeats', 'heartbeats')}
+            </div>
+          </div>
+          {loading && (
+            <span className="text-xs text-text-muted animate-pulse">{t('common.loading')}</span>
+          )}
+        </div>
+
+        {total === 0 && !loading ? (
+          <div className="rounded-lg border border-dashed border-border p-8 text-center text-text-muted text-sm">
+            {t('agent.uptime.noData', 'No heartbeat history for this period.')}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <HeartbeatBar heartbeats={heartbeats} maxBars={Math.min(heartbeats.length, 200)} />
+            {heartbeats.length > 0 && (
+              <div className="flex justify-between text-[10px] font-mono text-text-muted">
+                <span>{fmtTimestampShort(heartbeats[0].createdAt, period)}</span>
+                <span>{fmtTimestampShort(heartbeats[heartbeats.length - 1].createdAt, period)}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Latest events table */}
+      {heartbeats.length > 0 && (
+        <div className="rounded-xl bg-bg-secondary p-4 shadow-card">
+          <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-text-muted mb-3">
+            {t('agent.uptime.recentEvents', 'Recent state changes')}
+          </div>
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {(() => {
+              // Collapse consecutive same-status heartbeats into events
+              const events: Array<{ status: string; from: string; to: string; durationS: number; inMaintenance: boolean }> = [];
+              let runStart: Heartbeat | null = null;
+              let runStatus: string | null = null;
+              for (const hb of heartbeats) {
+                const s = hb.inMaintenance ? 'maintenance' : hb.status;
+                if (runStatus === null) {
+                  runStart = hb; runStatus = s;
+                } else if (s !== runStatus) {
+                  events.push({
+                    status: runStatus,
+                    from: runStart!.createdAt,
+                    to: hb.createdAt,
+                    durationS: Math.max(0, Math.round((new Date(hb.createdAt).getTime() - new Date(runStart!.createdAt).getTime()) / 1000)),
+                    inMaintenance: runStatus === 'maintenance',
+                  });
+                  runStart = hb; runStatus = s;
+                }
+              }
+              if (runStart && runStatus !== null) {
+                const last = heartbeats[heartbeats.length - 1];
+                events.push({
+                  status: runStatus,
+                  from: runStart.createdAt,
+                  to: last.createdAt,
+                  durationS: Math.max(0, Math.round((new Date(last.createdAt).getTime() - new Date(runStart.createdAt).getTime()) / 1000)),
+                  inMaintenance: runStatus === 'maintenance',
+                });
+              }
+              return events.slice(-30).reverse().map((e, i) => {
+                const color =
+                  e.status === 'up'          ? 'text-status-up' :
+                  e.status === 'maintenance' ? 'text-status-maintenance' :
+                  e.status === 'alert'       ? 'text-orange-400' :
+                                               'text-red-400';
+                return (
+                  <div key={i} className="flex items-center gap-3 text-[12px] font-mono">
+                    <span className={cn('uppercase font-semibold w-20 shrink-0', color)}>{e.status}</span>
+                    <span className="text-text-secondary flex-1 truncate">
+                      {fmtTimestampShort(e.from, period)} → {fmtTimestampShort(e.to, period)}
+                    </span>
+                    <span className="text-text-muted tabular-nums">{fmtDuration(e.durationS)}</span>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Threshold Editor Modal
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2322,6 +2552,7 @@ const NAV_ITEMS: Array<{ id: View; icon: React.ReactNode; label: string }> = [
   { id: 'gpu',      icon: <MonitorDot size={18} />,      label: 'GPU' },
   { id: 'others',   icon: <HardDrive size={18} />,       label: 'Disk / Net' },
   { id: 'temps',    icon: <Thermometer size={18} />,     label: 'Temperatures' },
+  { id: 'uptime',   icon: <Wifi size={18} />,            label: 'Uptime' },
 ];
 // Note: NAV_ITEMS labels are used as tooltip titles (title={item.label}), so they stay as English constants.
 // Translation is applied at the usage point inside the component where t() is available.
@@ -2343,6 +2574,9 @@ export function AgentDetailPage() {
   const [period, setPeriod] = useState<'realtime' | '1h' | '24h' | '7d' | '30d'>('realtime');
   const [historicalData, setHistoricalData] = useState<AgentPushSnapshot[] | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  // Heartbeat history for the Uptime view (online/offline timeline)
+  const [uptimeHeartbeats, setUptimeHeartbeats] = useState<Heartbeat[]>([]);
+  const [loadingUptime, setLoadingUptime] = useState(false);
   // Inline display name editing
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
@@ -2483,6 +2717,27 @@ export function AgentDetailPage() {
     socket.on(SOCKET_EVENTS.AGENT_STATUS_CHANGED, handler);
     return () => { socket.off(SOCKET_EVENTS.AGENT_STATUS_CHANGED, handler); };
   }, [id]);
+
+  // Fetch heartbeat history for the Uptime view. For 'realtime' (Live) we
+  // pull the latest 100 heartbeats; otherwise we fetch the full window.
+  useEffect(() => {
+    const monitorId = snapshot?.monitorId;
+    if (view !== 'uptime' || !monitorId) return;
+    setLoadingUptime(true);
+    const fetcher = period === 'realtime'
+      ? monitorsApi.getHeartbeats(monitorId, 100, 0)
+      : monitorsApi.getHeartbeatsByPeriod(monitorId, period as '1h' | '24h' | '7d' | '30d');
+    fetcher
+      .then(hbs => {
+        // Server returns descending; we want ascending for the timeline
+        const sorted = [...hbs].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+        setUptimeHeartbeats(sorted);
+      })
+      .catch(() => setUptimeHeartbeats([]))
+      .finally(() => setLoadingUptime(false));
+  }, [view, period, snapshot?.monitorId, lastPush]);
 
   // Fetch historical heartbeat data when switching away from realtime
   useEffect(() => {
@@ -2812,6 +3067,17 @@ export function AgentDetailPage() {
         {view === 'gpu'    && <GpuView    history={displayData} period={period} displayConfig={displayConfig} />}
         {view === 'others' && <OthersView history={displayData} period={period} displayConfig={displayConfig} />}
         {view === 'temps'  && <TempsView  history={displayData} period={period} sensorDisplayNames={device.sensorDisplayNames ?? null} onRename={handleSaveSensorName} />}
+        {view === 'uptime' && (
+          <UptimeView
+            heartbeats={uptimeHeartbeats}
+            period={period}
+            isOnline={isOnline}
+            currentStatus={overallStatus}
+            loading={loadingUptime}
+            lastPushIso={lastPush}
+            checkIntervalSeconds={device.checkIntervalSeconds ?? 60}
+          />
+        )}
 
         {/* ── Agent Settings Section ── */}
         <AgentSettingsSection

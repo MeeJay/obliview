@@ -48,9 +48,27 @@ export default {
         },
         // Alias used by enrollment wizard and interactive components
         primary: 'rgb(var(--c-primary) / <alpha-value>)',
+        // Obli Suite brand palette — used by the topbar app switcher
+        // and the per-app active-pill highlight. Values fixed per
+        // docs/obli-design-system.md §1; not theme-swappable so the
+        // dot colours stay recognisable across every theme.
+        obli: {
+          view:   '#2bc4bd',
+          view2:  '#5fd9d3',
+          guard:  '#f5a623',
+          map:    '#1edd8a',
+          ance:   '#e03a3a',
+          hub:    '#2d4ec9',
+        },
       },
       fontFamily: {
+        // Obli Design v1 (§11) — Rajdhani is a CONDENSED display font; great
+        // at 24+px (page titles, hero KPIs) but blurry at 12-13px body sizes.
+        //   font-sans     → Inter for body, nav, table rows
+        //   font-display  → Rajdhani for headings + hero values (opt-in)
+        //   font-mono     → JetBrains Mono for IDs / counts / timestamps
         sans: [
+          'Inter',
           '-apple-system',
           'BlinkMacSystemFont',
           'Segoe UI',
@@ -59,7 +77,18 @@ export default {
           'Arial',
           'sans-serif',
         ],
+        display: [
+          'Rajdhani',
+          'Inter',
+          '-apple-system',
+          'Segoe UI',
+          'sans-serif',
+        ],
         mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],
+      },
+      boxShadow: {
+        card: '0 1px 0 0 rgba(255,255,255,0.03), 0 6px 24px -8px rgba(0,0,0,0.45)',
+        glow: '0 0 0 1px rgba(43,196,189,0.18) inset, 0 6px 28px -10px rgba(43,196,189,0.25)',
       },
     },
   },

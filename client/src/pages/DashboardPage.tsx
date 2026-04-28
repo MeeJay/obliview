@@ -17,6 +17,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { PeekedGrid } from '@/components/dashboard/PeekedGrid';
 import { MonitorCardTile } from '@/components/dashboard/MonitorCardTile';
 import { AgentCardTile } from '@/components/dashboard/AgentCardTile';
+import { DashboardHero } from '@/components/dashboard/DashboardHero';
 import { cn } from '@/utils/cn';
 import { anonymize } from '@/utils/anonymize';
 import toast from 'react-hot-toast';
@@ -271,10 +272,17 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="flex flex-col gap-[18px] p-[24px_26px_20px]">
+      {/* Operator Overview — Obli design system §5 */}
+      <DashboardHero
+        monitors={monitors}
+        overallUptime={overallUptime}
+        overallAvgRt={overallAvgRt}
+      />
+
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-text-primary">{t('dashboard.title')}</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-[24px] font-semibold tracking-[0.02em] text-text-primary">{t('dashboard.title')}</h1>
         <div className="flex items-center gap-2">
           {/* Layout toggle */}
           <div className="flex items-center rounded-lg border border-border overflow-hidden">

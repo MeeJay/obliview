@@ -1,195 +1,150 @@
-import { LogOut, Menu, Download, ArrowLeftRight } from 'lucide-react';
+import { Download, Eye } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/store/authStore';
-import { useUiStore } from '@/store/uiStore';
-import { useSocketStore } from '@/store/socketStore';
-import { useMonitorStore } from '@/store/monitorStore';
-import { appConfigApi } from '@/api/appConfig.api';
-import { Button } from '@/components/common/Button';
 import { NotificationCenter } from './NotificationCenter';
 import { TenantSwitcher } from './TenantSwitcher';
+import { UserAvatar } from '@/components/common/UserAvatar';
 import { cn } from '@/utils/cn';
 import { anonymizeUsername } from '@/utils/anonymize';
 
-/** True when running inside the Obliview native desktop app (gear overlay sets this). */
+/** True when running inside the Obliview native desktop app. */
 const isNativeApp = typeof window !== 'undefined' &&
   !!(window as Window & { __obliview_is_native_app?: boolean }).__obliview_is_native_app;
 
+/** Per-app accent dot colors — matches §1 of the Obli design system. */
+const APP_ACCENTS: Record<string, string> = {
+  obliview:  '#2bc4bd',
+  obliguard: '#f5a623',
+  oblimap:   '#1edd8a',
+  obliance:  '#e03a3a',
+  oblihub:   '#2d4ec9',
+};
+const CURRENT_APP = 'obliview';
+const APP_DISPLAY_ORDER = ['obliview', 'obliguard', 'oblimap', 'obliance', 'oblihub'] as const;
+
+interface ConnectedApp {
+  appType: string;
+  name: string;
+  baseUrl: string;
+}
+
 export function Header() {
   const { t } = useTranslation();
-  const { user, logout } = useAuthStore();
-  const { toggleSidebar, sidebarFloating } = useUiStore();
-  const { status: socketStatus } = useSocketStore();
-  const monitors = useMonitorStore((s) => s.monitors);
-  const [connectedApps, setConnectedApps] = useState<Array<{ appType: string; name: string; baseUrl: string }>>([]);
-  const [obligateUrl, setObligateUrl] = useState<string | null>(null);
+  const { user } = useAuthStore();
+  const [connectedApps, setConnectedApps] = useState<ConnectedApp[]>([]);
 
   useEffect(() => {
-    // Fetch connected apps from Obligate via server proxy
     fetch('/api/auth/connected-apps', { credentials: 'include' })
       .then(r => r.json())
-      .then((d: { success: boolean; data?: Array<{ appType: string; name: string; baseUrl: string }> }) => {
-        if (d.success && d.data) setConnectedApps(d.data.filter(a => a.appType !== 'obliview'));
+      .then((d: { success: boolean; data?: ConnectedApp[] }) => {
+        if (d.success && d.data) setConnectedApps(d.data);
       })
-      .catch(() => {});
-    // Get Obligate URL for cross-app redirect
-    appConfigApi.getConfig()
-      .then(cfg => setObligateUrl(cfg.obligate_url ?? null))
       .catch(() => {});
   }, []);
 
-  // Monitor status counts for header chips
-  const statusCounts = useMemo(() => {
-    let up = 0, down = 0, warn = 0;
-    for (const m of monitors.values()) {
-      if (m.status === 'up')    up++;
-      else if (m.status === 'down')  down++;
-      else if (m.status === 'alert') warn++;
-    }
-    return { up, down, warn };
-  }, [monitors]);
+  // Build the app pill list: Obliview always present (current); other apps come from
+  // the connected-apps map keyed by appType so the dot color matches §1.
+  const appsByType = new Map<string, ConnectedApp>();
+  for (const app of connectedApps) appsByType.set(app.appType, app);
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-bg-secondary px-4">
-      <div className="flex items-center gap-3">
-        {/* Logo — shown in the Header only when the sidebar is floating.
-            In pinned mode the logo lives inside the sidebar itself.
-            In floating mode (especially in the native desktop app where the native
-            tenant tab bar can cover the very top of the floating sidebar) the logo
-            is mirrored here so it remains always accessible. */}
-        {sidebarFloating && (
-          <Link to="/" className="flex items-center gap-2 shrink-0">
-            <img src="/logo.svg" alt="Obliview" className="h-10 w-auto max-w-[200px] object-contain" />
-          </Link>
-        )}
-
-        {/* Mobile menu button */}
-        <button
-          onClick={toggleSidebar}
-          className="rounded-md p-1.5 text-text-secondary hover:bg-bg-hover hover:text-text-primary lg:hidden"
+    <header
+      className="flex h-[52px] shrink-0 items-center gap-3.5 px-[18px]"
+      style={{ background: 'var(--s1)' }}
+    >
+      {/* Logo block */}
+      <Link to="/" className="flex items-center gap-2.5 shrink-0">
+        <span
+          className="flex h-[26px] w-[26px] items-center justify-center rounded-[7px]"
+          style={{
+            background: `linear-gradient(135deg, ${APP_ACCENTS[CURRENT_APP]} 0%, #5fd9d3 100%)`,
+            boxShadow: '0 0 12px -4px rgba(43,196,189,0.5)',
+          }}
         >
-          <Menu size={20} />
-        </button>
+          <Eye size={14} className="text-white" />
+        </span>
+        <span className="text-[19px] font-semibold tracking-[0.04em] text-text-primary">Obliview</span>
+      </Link>
 
-        {/* Tenant switcher — hidden when single-tenant (tenants.length <= 1) */}
-        <TenantSwitcher />
+      {/* Tenant selector */}
+      <TenantSwitcher />
 
-        {/* Cross-app switch buttons via Obligate — hidden inside the native Obli.tools desktop app */}
-        {obligateUrl && !isNativeApp && connectedApps.map(app => (
-          <button
-            key={app.appType}
-            type="button"
-            onClick={() => {
-              // Navigate to target app's SSO redirect — it handles its own Obligate auth flow
-              window.location.href = `${app.baseUrl}/auth/sso-redirect`;
-            }}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold border transition-all
-              text-accent bg-accent/10 border-accent/30
-              hover:text-white hover:bg-accent/20 hover:border-accent/60"
-          >
-            <ArrowLeftRight size={12} />
-            {app.name}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-3">
-        {/* Monitor status chips */}
-        {monitors.size > 0 && (
-          <div className="hidden sm:flex items-center gap-1.5">
-            <Link
-              to="/"
-              title={t('dashboard.statsUp')}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold
-                text-green-400 bg-green-500/10 border border-green-500/25
-                hover:bg-green-500/20 transition-colors"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-              {statusCounts.up}
-            </Link>
-            <Link
-              to="/"
-              title={t('dashboard.statsDown')}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold
-                text-red-400 bg-red-500/10 border border-red-500/25
-                hover:bg-red-500/20 transition-colors"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-              {statusCounts.down}
-            </Link>
-            {statusCounts.warn > 0 && (
-              <Link
-                to="/"
-                title={t('dashboard.statsAlert')}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold
-                  text-orange-400 bg-orange-500/10 border border-orange-500/25
-                  hover:bg-orange-500/20 transition-colors"
+      {/* App switcher pills — hidden inside the native desktop app (the tab bar replaces it) */}
+      {!isNativeApp && (
+        <div className="flex gap-1 ml-1.5">
+          {APP_DISPLAY_ORDER.map(type => {
+            const isCurrent = type === CURRENT_APP;
+            const app = appsByType.get(type);
+            // Hide non-current apps that are not connected via Obligate.
+            if (!isCurrent && !app) return null;
+            const accent = APP_ACCENTS[type];
+            const label = app?.name ?? (type.charAt(0).toUpperCase() + type.slice(1));
+            const onClick = isCurrent || !app
+              ? undefined
+              : () => { window.location.href = `${app.baseUrl}/auth/sso-redirect`; };
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={onClick}
+                disabled={isCurrent}
+                className={cn(
+                  'flex items-center gap-[7px] rounded-[7px] px-3 py-1.5 text-[13px] font-medium transition-colors',
+                  isCurrent
+                    ? 'cursor-default'
+                    : 'cursor-pointer text-text-secondary hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary',
+                )}
+                style={isCurrent ? {
+                  background: `${accent}1f`,            // ~12% alpha
+                  color: '#5fd9d3',
+                } : undefined}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-                {statusCounts.warn}
-              </Link>
-            )}
-          </div>
-        )}
+                <span
+                  className="h-[7px] w-[7px] rounded-full shrink-0"
+                  style={{
+                    background: accent,
+                    boxShadow: isCurrent ? '0 0 8px currentColor' : undefined,
+                  }}
+                />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-        {/* Download App link — hidden inside the native desktop app */}
+      {/* Right cluster */}
+      <div className="ml-auto flex items-center gap-3.5">
+        {/* Download app link — hidden in native desktop */}
         {!isNativeApp && (
           <Link
             to="/download"
-            className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium text-text-secondary transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary"
           >
             <Download size={14} />
             {t('nav.downloadApp')}
           </Link>
         )}
 
-        {/* Socket connection status dot */}
-        <button
-          onClick={socketStatus !== 'connected' ? () => window.location.reload() : undefined}
-          title={
-            socketStatus === 'connected'    ? t('header.socketConnected')    :
-            socketStatus === 'reconnecting' ? t('header.socketReconnecting') :
-                                              t('header.socketDisconnected')
-          }
-          className={cn(
-            'flex h-6 w-6 items-center justify-center rounded-full transition-opacity',
-            socketStatus !== 'connected' && 'cursor-pointer hover:opacity-70',
-            socketStatus === 'connected'  && 'cursor-default',
-          )}
-        >
-          <span
-            className={cn(
-              'h-2 w-2 rounded-full transition-colors',
-              socketStatus === 'connected'    && 'bg-green-500',
-              socketStatus === 'reconnecting' && 'bg-amber-400 animate-pulse',
-              socketStatus === 'disconnected' && 'bg-red-500 animate-pulse',
-            )}
-          />
-        </button>
-
-        {/* Notification Center */}
+        {/* Notification bell */}
         <NotificationCenter />
 
+        {/* User badge */}
         {user && (
-          <>
-            <div className="text-sm">
-              <span className="text-text-secondary">{t('header.signedInAs')} </span>
-              <span className="font-medium text-text-primary">{anonymizeUsername(user.username.startsWith('og_') ? user.username.slice(3) : user.username)}</span>
-              <span className="ml-2 rounded-full bg-bg-tertiary px-2 py-0.5 text-xs text-text-muted">
-                {user.role}
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={logout}
-              title={t('nav.signOut')}
+          <div className="flex items-center gap-[9px] rounded-[22px] bg-[rgba(255,255,255,0.04)] py-[5px] pl-[5px] pr-3 text-[12.5px]">
+            <UserAvatar avatar={user.avatar} username={user.username} size={28} />
+            <span className="font-medium text-text-primary">
+              {anonymizeUsername(user.username.startsWith('og_') ? user.username.slice(3) : user.username)}
+            </span>
+            <span
+              className="border-l border-white/10 pl-1.5 font-mono text-[10px] tracking-[0.04em]"
+              style={{ color: 'var(--accent2)' }}
             >
-              <LogOut size={16} />
-            </Button>
-          </>
+              {user.role}
+            </span>
+          </div>
         )}
       </div>
     </header>

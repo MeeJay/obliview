@@ -16,7 +16,6 @@ import {
   Users,
   FolderTree,
   Plus,
-  UserCircle,
   LogOut,
   Cpu,
   Server,
@@ -26,8 +25,11 @@ import {
   ChevronDown,
   CalendarClock,
   Building2,
-  PanelLeft,
-  PanelLeftClose,
+  ChevronsLeft,
+  ChevronsRight,
+  Pin,
+  PinOff,
+  Search,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/cn';
@@ -38,6 +40,7 @@ import { useGroupStore } from '@/store/groupStore';
 import { useTenantStore } from '@/store/tenantStore';
 import { useUiStore } from '@/store/uiStore';
 import { GroupTree } from '@/components/groups/GroupTree';
+import { UserAvatar } from '@/components/common/UserAvatar';
 import { agentApi } from '@/api/agent.api';
 import { getSocket } from '@/socket/socketClient';
 import type { AgentDevice, MonitorStatus } from '@obliview/shared';
@@ -121,13 +124,10 @@ function DraggableDeviceItem({
         className={cn(
           'flex items-center gap-2 rounded-md py-1 px-2 text-sm transition-colors',
           isActive
-            ? 'bg-bg-active text-text-primary'
-            : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+            ? 'bg-[rgba(43,196,189,0.12)] text-[var(--accent2)]'
+            : 'text-text-secondary hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary',
         )}
-        onClick={e => {
-          // Prevent navigation when dragging
-          if (isDragging) e.preventDefault();
-        }}
+        onClick={e => { if (isDragging) e.preventDefault(); }}
       >
         <AgentStatusBadge status={device.status === 'suspended' ? 'suspended' : monitorStatus} />
         <span className="truncate flex-1 text-xs">{displayName}</span>
@@ -179,29 +179,32 @@ export function Sidebar() {
   const { user, isAdmin, canCreate } = useAuthStore();
 
   const topNavItems: NavItem[] = [
-    { label: t('nav.dashboard'), path: '/', icon: <LayoutDashboard size={18} /> },
+    { label: t('nav.dashboard'), path: '/', icon: <LayoutDashboard size={16} /> },
   ];
 
   const adminNavItems: NavItem[] = [
-    { label: t('nav.groups'),        path: '/groups',               icon: <FolderTree size={18} />,    adminOnly: true },
-    { label: t('nav.notifications'), path: '/notifications',        icon: <Bell size={18} />,          adminOnly: true },
-    { label: t('nav.users'),         path: '/admin/users',          icon: <Users size={18} />,         adminOnly: true },
-    { label: t('nav.agents'),        path: '/admin/agents',         icon: <Cpu size={18} />,           adminOnly: true },
-    { label: t('nav.remediations'),  path: '/admin/remediations',   icon: <ShieldCheck size={18} />,   adminOnly: true },
-    { label: t('nav.maintenance'),   path: '/admin/maintenance',    icon: <CalendarClock size={18} />, adminOnly: true },
-    { label: t('nav.importExport'),  path: '/admin/import-export',  icon: <PackageOpen size={18} />,   adminOnly: true },
-    { label: t('tenant.pageTitle'),  path: '/admin/tenants',        icon: <Building2 size={18} />,     adminOnly: true },
-    { label: t('nav.settings'),      path: '/settings',             icon: <Settings size={18} />,      adminOnly: true },
+    { label: t('nav.groups'),        path: '/groups',               icon: <FolderTree size={16} />,    adminOnly: true },
+    { label: t('nav.notifications'), path: '/notifications',        icon: <Bell size={16} />,          adminOnly: true },
+    { label: t('nav.users'),         path: '/admin/users',          icon: <Users size={16} />,         adminOnly: true },
+    { label: t('nav.agents'),        path: '/admin/agents',         icon: <Cpu size={16} />,           adminOnly: true },
+    { label: t('nav.remediations'),  path: '/admin/remediations',   icon: <ShieldCheck size={16} />,   adminOnly: true },
+    { label: t('nav.maintenance'),   path: '/admin/maintenance',    icon: <CalendarClock size={16} />, adminOnly: true },
+    { label: t('nav.importExport'),  path: '/admin/import-export',  icon: <PackageOpen size={16} />,   adminOnly: true },
+    { label: t('tenant.pageTitle'),  path: '/admin/tenants',        icon: <Building2 size={16} />,     adminOnly: true },
+    { label: t('nav.settings'),      path: '/settings',             icon: <Settings size={16} />,      adminOnly: true },
   ];
-  const { openAddAgentModal, sidebarFloating, toggleSidebarFloating } = useUiStore();
+  const {
+    openAddAgentModal,
+    sidebarFloating,
+    sidebarCollapsed,
+    toggleSidebarFloating,
+    toggleSidebarCollapsed,
+  } = useUiStore();
   const { fetchMonitors, monitors } = useMonitorStore();
   const { tree } = useGroupStore();
   const { currentTenantId } = useTenantStore();
 
   const [approvedDevices, setApprovedDevices] = useState<AgentDevice[]>([]);
-  // Real-time UP/ALERT/DOWN/INACTIVE status received via AGENT_STATUS_CHANGED events.
-  // Keyed by deviceId. Overrides the monitorStore lookup (which requires agentDeviceId
-  // to be populated in the store — not always reliable).
   const [deviceStatuses, setDeviceStatuses] = useState<Map<number, string>>(new Map());
   const [search, setSearch] = useState('');
 
@@ -209,12 +212,10 @@ export function Sidebar() {
   const [sidebarLayout, setSidebarLayout] = usePersisted<'stacked' | 'side-by-side'>('sidebar-layout', 'stacked');
   const [showMonitors, setShowMonitors] = usePersisted<boolean>('sidebar-show-monitors', true);
   const [showAgents, setShowAgents] = usePersisted<boolean>('sidebar-show-agents', true);
-  // Split column width: percent of the split container assigned to the Monitors column (20–80)
   const [splitPercent, setSplitPercent] = usePersisted<number>('sidebar-split-percent', 50);
   const [adminMenuOpen, setAdminMenuOpen] = usePersisted<boolean>('sidebar:admin-open', true);
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
-  // Agent groups (kind='agent')
   const agentGroups = tree.filter(n => n.kind === 'agent');
   const admin = isAdmin();
 
@@ -226,7 +227,6 @@ export function Sidebar() {
     fetchMonitors();
   }, [fetchMonitors, currentTenantId]);
 
-  // Fetch approved+suspended devices for sidebar (admin only)
   const loadDevices = useCallback(() => {
     if (!admin) return;
     Promise.all([
@@ -243,7 +243,6 @@ export function Sidebar() {
     return () => clearInterval(id);
   }, [loadDevices, currentTenantId]);
 
-  // Real-time sidebar updates: name/status/group changes without polling delay
   useEffect(() => {
     if (!admin) return;
     const socket = getSocket();
@@ -259,15 +258,12 @@ export function Sidebar() {
       setApprovedDevices(prev => {
         const isTracked = prev.some(d => d.id === data.deviceId);
         if (!isTracked) {
-          // Newly approved device — trigger a full refresh to get all fields
           loadDevices();
           return prev;
         }
-        // Filter out devices that are no longer approved/suspended
         if (data.status !== 'approved' && data.status !== 'suspended') {
           return prev.filter(d => d.id !== data.deviceId);
         }
-        // Update in-place: name, hostname, status, group
         return prev.map(d =>
           d.id === data.deviceId
             ? { ...d, name: data.name, hostname: data.hostname, status: data.status, groupId: data.groupId }
@@ -288,15 +284,10 @@ export function Sidebar() {
     };
   }, [admin, loadDevices]);
 
-  /** Get the real-time monitor status for an agent device.
-   *  Prefers the AGENT_STATUS_CHANGED socket Map (always up-to-date),
-   *  falls back to monitorStore lookup (populated on initial load). */
   const getMonitorStatus = useCallback(
     (deviceId: number): MonitorStatus | undefined => {
-      // Direct socket-pushed status (most reliable, no agentDeviceId dependency)
       const live = deviceStatuses.get(deviceId);
       if (live) return live as MonitorStatus;
-      // Fallback: scan monitorStore for a monitor with matching agentDeviceId
       for (const m of monitors.values()) {
         if (m.agentDeviceId === deviceId) return m.status;
       }
@@ -328,10 +319,9 @@ export function Sidebar() {
         toast.error(t('groupTree.failedMoveAgent'));
       }
     },
-    [loadDevices],
+    [loadDevices, t],
   );
 
-  // ── Split column resize ───────────────────────────────────────────────────
   const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const handleMouseMove = (ev: MouseEvent) => {
@@ -352,18 +342,15 @@ export function Sidebar() {
     document.body.style.userSelect = 'none';
   }, [setSplitPercent]);
 
-  // ── Agent section render helper ──────────────────────────────────────────
-  // hideHeader=true when used as a split column (the column title acts as header)
   const renderAgentContent = (hideHeader = false) => !admin ? null : (
     <DndContext sensors={sensors} onDragEnd={handleAgentDragEnd}>
-      <div className={hideHeader ? '' : 'mt-2 pt-2 border-t border-border'}>
+      <div className={hideHeader ? '' : 'mt-3'}>
         {!hideHeader && (
-        <div className="px-2 py-1 flex items-center gap-1.5 text-xs font-medium text-text-muted uppercase tracking-wider">
-          <Server size={12} />
-          {t('groups.agentGroup')}
-        </div>)}
+          <div className="px-3.5 pb-1.5 pt-3.5 text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
+            {t('groups.agentGroup')}
+          </div>
+        )}
 
-        {/* Grouped devices */}
         {agentGroups.map(group => {
           const isGroupActive = location.pathname === `/group/${group.id}`;
           const groupDevices = approvedDevices.filter(d => d.groupId === group.id);
@@ -374,14 +361,14 @@ export function Sidebar() {
                 className={cn(
                   'flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors',
                   isGroupActive
-                    ? 'bg-bg-active text-text-primary'
-                    : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                    ? 'bg-[rgba(43,196,189,0.12)] text-[var(--accent2)]'
+                    : 'text-text-secondary hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary',
                 )}
               >
                 <Server size={14} className="shrink-0 text-text-muted" />
                 <span className="truncate flex-1">{anonymize(group.name)}</span>
                 {groupDevices.length > 0 && (
-                  <span className="text-xs text-text-muted">{groupDevices.length}</span>
+                  <span className="font-mono text-[10px] text-text-muted">{groupDevices.length}</span>
                 )}
               </Link>
               {groupDevices.map(device => (
@@ -396,7 +383,6 @@ export function Sidebar() {
           );
         })}
 
-        {/* Ungrouped devices */}
         {approvedDevices.filter(d => d.groupId === null).length > 0 && (
           <DroppableGroupHeader groupId={null}>
             {approvedDevices.filter(d => d.groupId === null).map(device => (
@@ -412,71 +398,155 @@ export function Sidebar() {
     </DndContext>
   );
 
+  // ── Collapsed (icon-only, 64 px) render ────────────────────────────────────
+
+  if (sidebarCollapsed) {
+    const allItems = [
+      ...topNavItems,
+      ...(admin ? adminNavItems : []),
+    ];
+    return (
+      <aside className="flex h-full w-full flex-col" style={{ background: 'var(--s1)' }}>
+        {/* Header — toggle expand */}
+        <div className="flex flex-col items-center gap-2 px-2 pt-3.5">
+          <button
+            onClick={toggleSidebarCollapsed}
+            title={t('nav.expandSidebar', { defaultValue: 'Expand' })}
+            className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary"
+          >
+            <ChevronsRight size={16} />
+          </button>
+          {canCreate() && (
+            <button
+              onClick={openAddAgentModal}
+              title={t('common.agent')}
+              className="flex h-[38px] w-[38px] items-center justify-center rounded-[7px] text-[var(--accent2)] transition-colors"
+              style={{ background: 'rgba(43,196,189,0.12)' }}
+            >
+              <Plus size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Nav icons only */}
+        <nav className="flex flex-1 flex-col items-center gap-1 px-2 pt-3 overflow-y-auto">
+          {allItems.map(item => {
+            const isActive = location.pathname === item.path;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                title={item.label}
+                className={cn(
+                  'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
+                  isActive
+                    ? 'bg-[rgba(43,196,189,0.12)] text-[var(--accent2)]'
+                    : 'text-text-secondary hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary',
+                )}
+              >
+                {item.icon}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Footer — avatar + logout */}
+        <div className="flex flex-col items-center gap-2 border-t border-white/5 px-2 py-3">
+          <Link
+            to="/profile"
+            className="flex h-9 w-9 items-center justify-center rounded-full transition-opacity hover:opacity-80"
+            title={user?.displayName ?? user?.username ?? ''}
+          >
+            <UserAvatar avatar={user?.avatar} username={user?.username ?? '?'} size={24} />
+          </Link>
+          <button
+            onClick={() => useAuthStore.getState().logout()}
+            title={t('nav.signOut')}
+            className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary"
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
+  // ── Expanded (full content, 260 px / variable) render ──────────────────────
+
   return (
-    <aside className="flex h-full w-full flex-col border-r border-border bg-bg-secondary">
-      {/* Logo + float/pin toggle */}
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
-        <Link to="/" className="flex items-center gap-2">
-          <img src="/logo.svg" alt="Obliview" className="h-10 w-auto max-w-[200px] object-contain" />
-        </Link>
-        <div className="flex items-center gap-1">
+    <aside className="flex h-full w-full flex-col" style={{ background: 'var(--s1)' }}>
+      {/* Header — toggle row + Add agent + search */}
+      <div className="flex flex-col gap-[9px] px-3 pb-2.5 pt-3.5">
+        <div className="flex items-center justify-end gap-1">
+          {/* Pin/Float toggle — hidden when collapsed (we are not collapsed here). */}
           <button
             onClick={toggleSidebarFloating}
             title={sidebarFloating ? t('nav.pinSidebar') : t('nav.floatSidebar')}
             className={cn(
-              'p-1.5 rounded transition-colors',
+              'flex h-[30px] w-[30px] items-center justify-center rounded-md transition-colors',
               sidebarFloating
-                ? 'text-accent hover:text-accent hover:bg-accent/10'
-                : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
+                ? 'text-[var(--accent2)] hover:bg-[rgba(43,196,189,0.10)]'
+                : 'text-text-secondary hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary',
             )}
           >
-            {sidebarFloating ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
+            {sidebarFloating ? <Pin size={15} /> : <PinOff size={15} />}
           </button>
+          {/* Collapse toggle — hidden when floating per spec §4.2.1. */}
+          {!sidebarFloating && (
+            <button
+              onClick={toggleSidebarCollapsed}
+              title={t('nav.collapseSidebar', { defaultValue: 'Collapse' })}
+              className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary"
+            >
+              <ChevronsLeft size={16} />
+            </button>
+          )}
+        </div>
+
+        {canCreate() && (
+          <div className="flex gap-2">
+            <Link
+              to="/monitor/new"
+              className="flex h-[38px] flex-1 items-center justify-center gap-2 rounded-[7px] text-[13px] font-medium text-[var(--accent2)] transition-colors"
+              style={{ background: 'rgba(43,196,189,0.12)' }}
+            >
+              <Plus size={14} />
+              <span>{t('common.monitor')}</span>
+            </Link>
+            <button
+              onClick={openAddAgentModal}
+              className="flex h-[38px] flex-1 items-center justify-center gap-2 rounded-[7px] text-[13px] font-medium text-[var(--accent2)] transition-colors hover:brightness-110"
+              style={{ background: 'rgba(43,196,189,0.12)' }}
+            >
+              <Plus size={14} />
+              <span>{t('common.agent')}</span>
+            </button>
+          </div>
+        )}
+
+        <div className="relative">
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+          <input
+            type="text"
+            placeholder={t('common.search')}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="h-[38px] w-full rounded-[7px] bg-[rgba(255,255,255,0.03)] pl-8 pr-3 text-[13px] text-text-primary placeholder:text-text-muted focus:bg-[rgba(255,255,255,0.06)] focus:outline-none"
+          />
         </div>
       </div>
 
-      {/* Add Monitor / Add Agent buttons */}
-      {canCreate() && (
-        <div className="px-3 pt-3 flex gap-2">
-          <Link
-            to="/monitor/new"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
-          >
-            <Plus size={14} />
-            {t('common.monitor')}
-          </Link>
-          <button
-            onClick={openAddAgentModal}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
-          >
-            <Plus size={14} />
-            {t('common.agent')}
-          </button>
-        </div>
-      )}
-
-      {/* Search */}
-      <div className="px-3 py-3">
-        <input
-          type="text"
-          placeholder={t('common.search')}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
-        />
-      </div>
-
-      {/* Filter chips + layout toggle — stacked mode only */}
+      {/* Filter chips + layout toggle */}
       {admin && agentGroups.length > 0 && sidebarLayout === 'stacked' && (
-        <div className="flex items-center justify-between px-3 pb-1.5 gap-2">
+        <div className="flex items-center justify-between gap-2 px-3 pb-1.5">
           <div className="flex gap-1">
             <button
               onClick={() => setShowMonitors(v => !v)}
               className={cn(
-                'text-xs px-2 py-0.5 rounded-full border transition-colors',
+                'rounded-full px-2 py-0.5 text-xs transition-colors',
                 showMonitors
-                  ? 'bg-accent/20 border-accent text-accent'
-                  : 'border-border text-text-muted hover:text-text-secondary',
+                  ? 'bg-[rgba(43,196,189,0.18)] text-[var(--accent2)]'
+                  : 'bg-[rgba(255,255,255,0.04)] text-text-muted hover:text-text-secondary',
               )}
             >
               {t('importExport.monitors')}
@@ -484,10 +554,10 @@ export function Sidebar() {
             <button
               onClick={() => setShowAgents(v => !v)}
               className={cn(
-                'text-xs px-2 py-0.5 rounded-full border transition-colors',
+                'rounded-full px-2 py-0.5 text-xs transition-colors',
                 showAgents
-                  ? 'bg-accent/20 border-accent text-accent'
-                  : 'border-border text-text-muted hover:text-text-secondary',
+                  ? 'bg-[rgba(43,196,189,0.18)] text-[var(--accent2)]'
+                  : 'bg-[rgba(255,255,255,0.04)] text-text-muted hover:text-text-secondary',
               )}
             >
               {t('nav.agents')}
@@ -496,143 +566,149 @@ export function Sidebar() {
           <button
             onClick={() => setSidebarLayout('side-by-side')}
             title="Switch to side-by-side"
-            className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+            className="shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary"
           >
             <ArrowLeftRight size={13} />
           </button>
         </div>
       )}
 
-      {/* Content area — stacked or side-by-side */}
-      {sidebarLayout === 'side-by-side' && admin && agentGroups.length > 0 ? (
-        <div ref={splitContainerRef} className="flex flex-row flex-1 overflow-hidden min-h-0">
+      {/* Section header — "APPAREILS" */}
+      {admin && (
+        <div className="px-3.5 pb-1.5 pt-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-text-muted">
+          {t('groups.agentGroup', { defaultValue: 'APPAREILS' })}
+        </div>
+      )}
 
-          {/* ── Monitors column ── */}
-          <div className="flex flex-col overflow-hidden min-w-0" style={{ width: `${splitPercent}%` }}>
-            {/* Column header */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border shrink-0">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-text-muted">{t('importExport.monitors')}</span>
+      {/* Body */}
+      {sidebarLayout === 'side-by-side' && admin && agentGroups.length > 0 ? (
+        <div ref={splitContainerRef} className="flex min-h-0 flex-1 flex-row overflow-hidden">
+          <div className="flex min-w-0 flex-col overflow-hidden" style={{ width: `${splitPercent}%` }}>
+            <div className="shrink-0 px-3 pb-1.5 pt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-muted">
+              {t('importExport.monitors')}
             </div>
-            <div className="flex-1 overflow-y-auto px-2 min-h-0">
+            <div className="min-h-0 flex-1 overflow-y-auto px-2">
               <GroupTree searchQuery={search} />
             </div>
           </div>
 
-          {/* ── Resize handle ── */}
           <div
             onMouseDown={handleSplitMouseDown}
-            className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-accent/50 active:bg-accent/70 transition-colors"
+            className="w-1 shrink-0 cursor-col-resize bg-white/5 transition-colors hover:bg-[var(--accent)]/40 active:bg-[var(--accent)]/60"
           />
 
-          {/* ── Agents column ── */}
-          <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-            {/* Column header */}
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-border shrink-0">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-text-muted">{t('nav.agents')}</span>
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="flex shrink-0 items-center justify-between px-3 pb-1.5 pt-1">
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-muted">{t('nav.agents')}</span>
               <button
                 onClick={() => setSidebarLayout('stacked')}
                 title="Switch to stacked"
-                className="p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+                className="shrink-0 rounded p-0.5 text-text-muted transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary"
               >
                 <ArrowLeftRight size={12} />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto px-2 min-h-0">
+            <div className="min-h-0 flex-1 overflow-y-auto px-2">
               {renderAgentContent(true)}
             </div>
           </div>
-
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto px-2">
+        <div className="flex-1 overflow-y-auto px-2 pb-2">
           {showMonitors && <GroupTree searchQuery={search} />}
           {showAgents && renderAgentContent(false)}
         </div>
       )}
 
-      {/* Navigation */}
-      <nav className="border-t border-border p-2 pb-0">
-        {topNavItems.map((item) => {
+      {/* Top nav */}
+      <nav className="px-2 pt-2">
+        {topNavItems.map(item => {
           const isActive = location.pathname === item.path;
           return (
             <Link
               key={item.path}
               to={item.path}
               className={cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                'mb-0.5 flex h-[38px] items-center gap-3 rounded-[7px] px-3 text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-bg-active text-text-primary'
-                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                  ? 'bg-[rgba(43,196,189,0.12)] text-[var(--accent2)]'
+                  : 'text-text-secondary hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary',
               )}
             >
               {item.icon}
-              {item.label}
+              <span>{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      {/* Admin section collapsible divider */}
+      {/* Admin section */}
       {admin && (
         <>
           <button
             onClick={() => setAdminMenuOpen(v => !v)}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-text-muted hover:text-text-secondary transition-colors"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-text-muted transition-colors hover:text-text-secondary"
           >
-            <div className="flex-1 h-px bg-border" />
-            <ChevronDown size={12} className={cn('transition-transform duration-200', !adminMenuOpen && '-rotate-90')} />
-            <div className="flex-1 h-px bg-border" />
+            <div className="h-px flex-1 bg-white/5" />
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em]">
+              {t('nav.administration', { defaultValue: 'ADMINISTRATION' })}
+            </span>
+            <ChevronDown size={11} className={cn('transition-transform duration-200', !adminMenuOpen && '-rotate-90')} />
+            <div className="h-px flex-1 bg-white/5" />
           </button>
 
           {adminMenuOpen && (
-            <nav className="p-2 pt-0">
-              {adminNavItems
-                .filter((item) => !item.adminOnly || isAdmin())
-                .map((item) => {
-                  const isActive = location.pathname === item.path;
-                  return (
-                    <Link
-                      key={item.path}
-                      to={item.path}
-                      className={cn(
-                        'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-                        isActive
-                          ? 'bg-bg-active text-text-primary'
-                          : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
-                      )}
-                    >
-                      {item.icon}
-                      {item.label}
-                    </Link>
-                  );
-                })}
+            <nav className="px-2 pb-2 pt-0">
+              {adminNavItems.filter(item => !item.adminOnly || isAdmin()).map(item => {
+                const isActive = location.pathname === item.path;
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={cn(
+                      'mb-0.5 flex h-[38px] items-center gap-3 rounded-[7px] px-3 text-sm font-medium transition-colors',
+                      isActive
+                        ? 'bg-[rgba(43,196,189,0.12)] text-[var(--accent2)]'
+                        : 'text-text-secondary hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary',
+                    )}
+                  >
+                    {item.icon}
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
             </nav>
           )}
         </>
       )}
 
-      {/* User section */}
-      <div className="border-t border-border p-2">
+      {/* Footer — user row + logout */}
+      <div className="border-t border-white/5 p-2.5">
         <Link
           to="/profile"
           className={cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+            'flex items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors',
             location.pathname === '/profile'
-              ? 'bg-bg-active text-text-primary'
-              : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+              ? 'bg-[rgba(43,196,189,0.12)]'
+              : 'hover:bg-[rgba(255,255,255,0.04)]',
           )}
         >
-          <UserCircle size={18} />
-          <span className="truncate flex-1">{anonymizeUsername(user?.displayName || (user?.username?.startsWith('og_') ? user.username.slice(3) : user?.username))}</span>
+          <UserAvatar avatar={user?.avatar} username={user?.username ?? '?'} size={20} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-medium text-text-primary">
+              {anonymizeUsername(user?.displayName || (user?.username?.startsWith('og_') ? user.username.slice(3) : user?.username))}
+            </div>
+            <div className="truncate font-mono text-[10px] text-text-muted">
+              {(user?.username?.startsWith('og_') ? user.username.slice(3) : user?.username) ?? ''} · {user?.role ?? ''}
+            </div>
+          </div>
         </Link>
         <button
-          onClick={() => {
-            useAuthStore.getState().logout();
-          }}
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+          onClick={() => useAuthStore.getState().logout()}
+          className="mt-1 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-text-secondary transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary"
         >
-          <LogOut size={18} />
-          {t('nav.signOut')}
+          <LogOut size={14} />
+          <span>{t('nav.signOut')}</span>
         </button>
       </div>
     </aside>

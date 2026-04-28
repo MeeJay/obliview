@@ -8,8 +8,70 @@
    (e.g. bg-accent/30) works: Tailwind emits  rgb(var(--c-X) / 0.3)
    ───────────────────────────────────────────────────────────────────────────── */
 
-/* ── Modern UI (default) ──────────────────────────────────────────────────── */
+/* ── Obli Operator (default) ──────────────────────────────────────────────────
+   Shared Obli* design system v1 (2026-04-28). See docs/obli-design-system.md.
+   Per-app accent for Obliview is teal (#2bc4bd / #5fd9d3).
+   ───────────────────────────────────────────────────────────────────────────── */
 :root,
+[data-theme="obli-operator"] {
+  --c-bg-primary:            11 13 26;     /* #0b0d1a */
+  --c-bg-secondary:          19 23 40;     /* #131728 — card bg */
+  --c-bg-tertiary:           24 28 48;     /* #181c30 */
+  --c-bg-hover:              24 28 48;     /* solid step rather than alpha */
+  --c-bg-active:             29 34 56;     /* #1d2238 */
+
+  --c-border:                30 36 60;
+  --c-border-light:          40 48 78;
+
+  --c-text-primary:          232 236 245;  /* #e8ecf5 */
+  --c-text-secondary:        140 147 182;  /* #8c93b6 */
+  --c-text-muted:            75 82 115;    /* #4b5273 */
+
+  --c-status-up:             30 221 138;   /* #1edd8a */
+  --c-status-up-bg:          5 50 28;
+  --c-status-down:           224 58 58;    /* #e03a3a */
+  --c-status-down-bg:        50 13 13;
+  --c-status-pending:        245 166 35;   /* #f5a623 */
+  --c-status-pending-bg:     46 33 17;
+  --c-status-maintenance:    79 123 255;   /* #4f7bff */
+  --c-status-maintenance-bg: 13 27 70;
+  --c-status-paused:         140 147 182;
+  --c-status-paused-bg:      24 28 48;
+  --c-status-ssl-warning:    245 166 35;
+  --c-status-ssl-warning-bg: 46 33 17;
+  --c-status-ssl-expired:    176 106 255;
+  --c-status-ssl-expired-bg: 39 26 69;
+
+  /* Obliview accent — teal */
+  --c-accent:                43 196 189;   /* #2bc4bd */
+  --c-accent-hover:          95 217 211;   /* #5fd9d3 */
+  --c-accent-dark:           24 142 138;
+  --c-primary:               43 196 189;
+
+  /* Raw aliases used by the new mockup-style chrome (Header / Sidebar /
+     DashboardPage). Matches the variable names from the design-system spec
+     so component CSS can be lifted from the mockup verbatim. */
+  --bg:        #0b0d1a;
+  --s1:        #0f1220;   /* topbar + sidebar */
+  --s2:        #131728;   /* card */
+  --s3:        #181c30;
+  --s4:        #1d2238;
+  --hover:     rgba(255,255,255,0.04);
+  --hover2:    rgba(255,255,255,0.06);
+  --text:      #e8ecf5;
+  --text2:     #8c93b6;
+  --text3:     #4b5273;
+  --text4:     #2f3552;
+  --accent:    #2bc4bd;
+  --accent2:   #5fd9d3;
+  --green:     #1edd8a;
+  --amber:     #f5a623;
+  --blue:      #4f7bff;
+  --shadow-card: 0 1px 0 0 rgba(255,255,255,0.03), 0 6px 24px -8px rgba(0,0,0,0.45);
+  --shadow-glow: 0 0 0 1px rgba(43,196,189,0.18) inset, 0 6px 28px -10px rgba(43,196,189,0.25);
+}
+
+/* ── Modern UI (legacy / "obli-classic") ──────────────────────────────────── */
 [data-theme="modern"] {
   --c-bg-primary:            13 17 23;
   --c-bg-secondary:          22 27 34;

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { ChevronDown, Building2, Check } from 'lucide-react';
+import { ChevronDown, Building2, Check } from 'lucide-react'; // Building2 used in dropdown rows
 import { useTranslation } from 'react-i18next';
 import { useTenantStore } from '@/store/tenantStore';
 import { useGroupStore } from '@/store/groupStore';
@@ -73,13 +73,16 @@ export function TenantSwitcher() {
         onClick={() => setOpen((v) => !v)}
         disabled={switching}
         className={cn(
-          'flex items-center gap-1.5 rounded-md border border-border bg-bg-tertiary px-2.5 py-1 text-sm text-text-primary transition-colors hover:bg-bg-hover',
+          'flex items-center gap-2 rounded-[7px] px-3 py-1.5 text-sm transition-colors',
+          'bg-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.06)]',
           switching && 'opacity-60 cursor-wait',
         )}
       >
-        <Building2 size={13} className="text-accent shrink-0" />
-        <span className="max-w-[120px] truncate font-medium">{anonymize(currentTenant?.name) || '…'}</span>
-        <ChevronDown size={12} className={cn('text-text-muted transition-transform', open && 'rotate-180')} />
+        <span className="font-mono text-[11px] tracking-[0.06em] text-text-secondary">TENANT</span>
+        <span className="max-w-[140px] truncate font-medium tracking-[0.04em] text-text-primary">
+          {anonymize(currentTenant?.name) || '…'}
+        </span>
+        <ChevronDown size={12} className={cn('text-text-secondary transition-transform', open && 'rotate-180')} />
       </button>
 
       {open && (
