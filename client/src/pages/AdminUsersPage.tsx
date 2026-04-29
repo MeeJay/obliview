@@ -100,9 +100,13 @@ export function AdminUsersPage() {
 
   const load = async () => {
     try {
+      // Always scope teams to the current tenant — admins switch tenants via the
+      // top-bar selector when they need to manage another tenant's teams. Using
+      // listAll() here previously made teams of every tenant appear regardless
+      // of the current context, which the user reasonably reported as a bug.
       const [u, t, tr, m] = await Promise.all([
         usersApi.list(),
-        isPlatformAdmin ? teamsApi.listAll() : teamsApi.list(),
+        teamsApi.list(),
         groupsApi.tree(),
         monitorsApi.list(),
       ]);

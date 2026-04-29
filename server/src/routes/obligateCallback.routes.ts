@@ -126,10 +126,16 @@ router.get('/callback', async (req, res) => {
       obligateService.reportProvision(assertion.obligateUserId, localUserId).catch(() => {});
     }
 
-    // Sync tenants + capabilities from Obligate (every SSO login)
+    // Sync tenants + capabilities from Obligate (every SSO login).
+    // Collect the local tenant ids the user has access to so we can scope the
+    // subsequent team_memberships sync (we only touch memberships in teams
+    // visible to one of the user's accessible tenants — admin-added memberships
+    // in unrelated tenants are preserved).
+    const userTenantIds: number[] = [];
     for (const t of assertion.tenants) {
       const tenant = await db('tenants').where({ slug: t.slug }).first() as { id: number } | undefined;
       if (tenant) {
+        userTenantIds.push(tenant.id);
         await db('user_tenants')
           .insert({ user_id: localUserId, tenant_id: tenant.id, role: t.role === 'admin' ? 'admin' : 'member' })
           .onConflict(['user_id', 'tenant_id'])
@@ -147,6 +153,70 @@ router.get('/callback', async (req, res) => {
           }
         }
       }
+    }
+
+    // ── Sync team_memberships from assertion.teams (every SSO login) ──────
+    // Obligate sends the list of team NAMES the user should belong to (per
+    // their permission-group → app role mapping). We resolve those names to
+    // local team ids (tenant-local OR global-with-scope), then replace the
+    // user's memberships within the in-scope team set. Memberships in teams
+    // belonging to tenants the user has no longer has access to are left
+    // alone — defence-in-depth so an admin's manual cross-tenant assignment
+    // isn't accidentally nuked by a partial assertion.
+    if (userTenantIds.length > 0) {
+      const teamNames = assertion.teams ?? [];
+
+      // 1. Resolve asserted team names → local ids (within user's tenants).
+      let assertedTeamIds: number[] = [];
+      if (teamNames.length > 0) {
+        const rows = await db('user_teams as ut')
+          .leftJoin('team_tenant_scopes as tts', 'tts.team_id', 'ut.id')
+          .whereIn('ut.name', teamNames)
+          .where((qb) => {
+            qb.whereIn('ut.tenant_id', userTenantIds)
+              .orWhere((sub) => {
+                sub.where('ut.is_global', true).whereIn('tts.tenant_id', userTenantIds);
+              });
+          })
+          .distinct('ut.id')
+          .pluck('ut.id') as number[];
+        assertedTeamIds = rows;
+      }
+
+      // 2. Find every team currently in the user's accessible-tenant scope.
+      const inScopeTeamIds = await db('user_teams as ut')
+        .leftJoin('team_tenant_scopes as tts', 'tts.team_id', 'ut.id')
+        .where((qb) => {
+          qb.whereIn('ut.tenant_id', userTenantIds)
+            .orWhere((sub) => {
+              sub.where('ut.is_global', true).whereIn('tts.tenant_id', userTenantIds);
+            });
+        })
+        .distinct('ut.id')
+        .pluck('ut.id') as number[];
+
+      // 3. Drop in-scope memberships that aren't in the assertion, then insert
+      //    the asserted set (idempotent via onConflict).
+      if (inScopeTeamIds.length > 0) {
+        const stale = inScopeTeamIds.filter((id) => !assertedTeamIds.includes(id));
+        if (stale.length > 0) {
+          await db('team_memberships')
+            .where({ user_id: localUserId })
+            .whereIn('team_id', stale)
+            .del();
+        }
+      }
+      if (assertedTeamIds.length > 0) {
+        await db('team_memberships')
+          .insert(assertedTeamIds.map((team_id) => ({ user_id: localUserId, team_id })))
+          .onConflict(['user_id', 'team_id'])
+          .ignore();
+      }
+
+      logger.info(
+        { userId: localUserId, assertedTeams: teamNames, resolvedTeamIds: assertedTeamIds },
+        'Obligate SSO: synced team memberships',
+      );
     }
 
     // Sync preferences from Obligate (theme, language, toast settings)
