@@ -395,7 +395,13 @@ export async function bulkUpdateDevices(req: Request, res: Response): Promise<vo
     res.status(400).json({ success: false, error: 'deviceIds array required' });
     return;
   }
-  await agentService.bulkUpdateDevices(deviceIds, { groupId, heartbeatMonitoring, overrideGroupSettings, status });
+  await agentService.bulkUpdateDevices(deviceIds, {
+    groupId,
+    heartbeatMonitoring,
+    overrideGroupSettings,
+    status,
+    approvedBy: req.session.userId,
+  });
   res.json({ success: true });
 }
 

@@ -448,14 +448,93 @@ export const agentService = {
     heartbeatMonitoring?: boolean;
     overrideGroupSettings?: boolean;
     status?: 'approved' | 'suspended';
+    /** User id stamped as approved_by + monitor.created_by when status='approved'. */
+    approvedBy?: number;
   }): Promise<void> {
     if (ids.length === 0) return;
+
+    const isApproving = data.status === 'approved';
+
     const update: Record<string, unknown> = { updated_at: new Date() };
     if (data.groupId !== undefined)             update.group_id               = data.groupId;
     if (data.heartbeatMonitoring !== undefined)  update.heartbeat_monitoring   = data.heartbeatMonitoring;
     if (data.overrideGroupSettings !== undefined) update.override_group_settings = data.overrideGroupSettings;
     if (data.status !== undefined)               update.status                 = data.status;
+    if (isApproving) {
+      // Mirror single approveDevice: stamp approval metadata and reset the
+      // push interval to the default. Without these, the freshly-approved
+      // devices never spawn an agent monitor + worker, so the dashboard
+      // stats and online detection never light up.
+      update.approved_by              = data.approvedBy ?? null;
+      update.approved_at              = new Date();
+      update.check_interval_seconds   = 60;
+    }
     await db('agent_devices').whereIn('id', ids).update(update);
+
+    // ── Approval side effects: create the agent monitor for each device ──
+    // bulkUpdate previously only touched the agent_devices row; the monitors
+    // table stayed empty so the AgentMonitorWorker never picked the device up.
+    // Mirror the single-device approveDevice flow here for parity.
+    if (isApproving) {
+      const devices = await db('agent_devices')
+        .whereIn('id', ids)
+        .select('id', 'hostname', 'name', 'tenant_id', 'group_id') as Array<{
+          id: number; hostname: string; name: string | null;
+          tenant_id: number; group_id: number | null;
+        }>;
+
+      // Resolve group thresholds once when groupId is set in the payload.
+      // For per-device pre-existing groups we look those up individually below.
+      let payloadGroupThresholds: AgentThresholds | null = null;
+      if (data.groupId != null) {
+        const row = await db('monitor_groups')
+          .where({ id: data.groupId })
+          .select('agent_thresholds')
+          .first() as { agent_thresholds: AgentThresholds | null } | undefined;
+        payloadGroupThresholds = row?.agent_thresholds ?? null;
+      }
+
+      // Drop any stale monitors for these devices (re-approval safety) so the
+      // new rows reflect the chosen group + thresholds.
+      await db('monitors').whereIn('agent_device_id', ids).del();
+
+      const rows = await Promise.all(devices.map(async (dev) => {
+        // Effective group: payload override > device's own group_id > none.
+        const effectiveGroupId = data.groupId !== undefined ? data.groupId : dev.group_id;
+
+        let thresholds: AgentThresholds = { ...DEFAULT_AGENT_THRESHOLDS };
+        if (data.groupId != null && payloadGroupThresholds) {
+          thresholds = payloadGroupThresholds;
+        } else if (effectiveGroupId != null) {
+          const groupRow = await db('monitor_groups')
+            .where({ id: effectiveGroupId })
+            .select('agent_thresholds')
+            .first() as { agent_thresholds: AgentThresholds | null } | undefined;
+          if (groupRow?.agent_thresholds) thresholds = groupRow.agent_thresholds;
+        }
+
+        return {
+          name: dev.name ?? dev.hostname,
+          type: 'agent',
+          group_id: effectiveGroupId,
+          is_active: true,
+          status: 'pending',
+          agent_device_id: dev.id,
+          agent_thresholds: JSON.stringify(thresholds),
+          created_by: data.approvedBy ?? null,
+          tenant_id: dev.tenant_id,
+        };
+      }));
+
+      if (rows.length > 0) {
+        try {
+          await db('monitors').insert(rows);
+        } catch (err) {
+          logger.error(err, `Failed to create agent monitors for ${rows.length} bulk-approved devices`);
+        }
+      }
+    }
+
     // Notify frontend of each updated device
     if (_io) {
       for (const id of ids) {
