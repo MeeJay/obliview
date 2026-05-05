@@ -100,7 +100,15 @@ export function HeartbeatBar({ heartbeats, maxBars }: HeartbeatBarProps) {
               )}
               title={
                 hb
-                  ? `${hb.status.toUpperCase()}${hb.isRetrying ? ' (Retrying)' : ''}${maintenanceLabel} - ${hb.responseTime ? `${hb.responseTime}ms` : 'N/A'} - ${new Date(hb.createdAt).toLocaleString()}`
+                  ? [
+                      `${hb.status.toUpperCase()}${hb.isRetrying ? ' (Retrying)' : ''}${maintenanceLabel}`,
+                      // Drop the response-time slot entirely when the heartbeat
+                      // has none (e.g. agent heartbeats — reachability-only,
+                      // no roundtrip metric). Avoids a useless "N/A" in the
+                      // tooltip for every row of every agent.
+                      hb.responseTime ? `${hb.responseTime}ms` : null,
+                      new Date(hb.createdAt).toLocaleString(),
+                    ].filter(Boolean).join(' · ')
                   : undefined
               }
             />

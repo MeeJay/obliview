@@ -1,6 +1,9 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceArea,
+} from 'recharts';
 import {
   ArrowLeft, ArrowLeftRight, RefreshCw, Settings2, Cpu, HardDrive,
   Network, Activity, Server, AlertTriangle, Wind, Thermometer,
@@ -1705,13 +1708,139 @@ function TempsView({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Uptime % chart — buckets heartbeats over the visible period and plots the
-// rolling reachability ratio. Reachability only: a heartbeat counts as "up"
-// if status === 'up', and "down" otherwise (alert/down/pending all flunk).
-// Note: with the recent backend change, agent heartbeats are written as 'up'
-// whenever a push is received — threshold violations no longer pollute the
-// timeline. So this chart now reflects pure connectivity over time.
+// Uptime % chart — recharts-based, mirrors the look-and-feel of the monitor
+// HeartbeatChart: 60 buckets, area + line, per-bucket outage shading
+// (orange for partial, red for full-down — never the whole chart), tooltip
+// with the exact bucket time range and up/total counts, drag-to-zoom and
+// reset zoom button.
 // ─────────────────────────────────────────────────────────────────────────────
+
+interface UptimePoint {
+  ts: number;
+  pct: number;
+  up: number;
+  total: number;
+  hasOutage: boolean;
+  allDown: boolean;
+  fullLabel: string;
+  slotEnd: number;
+  tickLabel: string;
+}
+
+const _UP_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const _upP2 = (n: number) => String(n).padStart(2, '0');
+const _upFmtDate   = (d: Date) => `${_upP2(d.getDate())} ${_UP_MONTHS[d.getMonth()]}`;
+const _upFmtDateHm = (d: Date) => `${_upFmtDate(d)} ${_upP2(d.getHours())}:${_upP2(d.getMinutes())}`;
+const _upFmtHms    = (d: Date) => `${_upP2(d.getHours())}:${_upP2(d.getMinutes())}:${_upP2(d.getSeconds())}`;
+const _upFmtHm     = (d: Date) => `${_upP2(d.getHours())}:${_upP2(d.getMinutes())}`;
+
+function buildUptimePoints(
+  heartbeats: Heartbeat[],
+  _period: 'realtime' | '1h' | '24h' | '7d' | '30d',
+  customRange?: { from: Date; to: Date },
+): UptimePoint[] {
+  const N = 60;
+  if (heartbeats.length === 0) return [];
+
+  let rangeStart: number;
+  let rangeEnd: number;
+  if (customRange) {
+    rangeStart = customRange.from.getTime();
+    rangeEnd   = customRange.to.getTime();
+  } else {
+    rangeStart = new Date(heartbeats[0].createdAt).getTime();
+    rangeEnd   = new Date(heartbeats[heartbeats.length - 1].createdAt).getTime();
+    if (rangeEnd <= rangeStart) rangeEnd = rangeStart + 60_000;
+  }
+  const span = rangeEnd - rangeStart;
+  const bucketMs = span / N;
+
+  // Tick / tooltip formatting — same scale as the monitor HeartbeatChart
+  const rangeHours = span / 3_600_000;
+  let tickLabelFn: (ts: number) => string;
+  let fullLabelFn: (d: Date) => string;
+  if (rangeHours < 2) {
+    tickLabelFn = ts => _upFmtHms(new Date(ts));
+    fullLabelFn = _upFmtHms;
+  } else if (rangeHours < 72) {
+    tickLabelFn = ts => _upFmtHm(new Date(ts));
+    fullLabelFn = _upFmtDateHm;
+  } else {
+    tickLabelFn = ts => _upFmtDate(new Date(ts));
+    fullLabelFn = _upFmtDate;
+  }
+
+  const slotList = Array.from({ length: N }, (_, i) => rangeStart + i * bucketMs);
+  const buckets = new Map<number, { up: number; total: number }>();
+  for (const ts of slotList) buckets.set(ts, { up: 0, total: 0 });
+
+  for (const hb of heartbeats) {
+    const hbMs = new Date(hb.createdAt).getTime();
+    if (hbMs < rangeStart || hbMs > rangeEnd) continue;
+    const idx = Math.min(N - 1, Math.max(0, Math.floor((hbMs - rangeStart) / bucketMs)));
+    const b = buckets.get(slotList[idx]);
+    if (!b) continue;
+    b.total++;
+    if (hb.status === 'up') b.up++;
+  }
+
+  // Carry-forward avoids 0% spikes for empty buckets between two healthy ones.
+  let last = 100;
+  return slotList.map(ts => {
+    const b = buckets.get(ts)!;
+    const d = new Date(ts);
+    if (b.total > 0) last = (b.up / b.total) * 100;
+    const pct = last;
+    return {
+      ts,
+      pct: Math.round(pct * 100) / 100,
+      up: b.up,
+      total: b.total,
+      hasOutage: b.total > 0 && b.up < b.total,
+      allDown:   b.total > 0 && b.up === 0,
+      fullLabel: fullLabelFn(d),
+      slotEnd: ts + bucketMs,
+      tickLabel: tickLabelFn(ts),
+    };
+  });
+}
+
+function UptimeTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: UptimePoint }> }) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0]?.payload;
+  if (!p) return null;
+  return (
+    <div style={{
+      background: 'rgb(var(--c-bg-secondary))', border: '1px solid rgb(var(--c-border))', borderRadius: 6,
+      padding: '8px 12px', fontSize: 12, color: 'rgb(var(--c-text-primary))', lineHeight: 1.6,
+    }}>
+      <div style={{ color: 'rgb(var(--c-text-secondary))', marginBottom: 4 }}>{p.fullLabel}</div>
+      <div style={{
+        color: p.allDown ? 'rgb(var(--c-status-down))' :
+               p.hasOutage ? 'rgb(var(--c-status-pending))' :
+                             'rgb(var(--c-status-up))',
+        fontWeight: 600,
+      }}>
+        {p.pct.toFixed(2)}% up
+      </div>
+      {p.total > 0 && (
+        <div style={{ color: 'rgb(var(--c-text-secondary))', fontSize: 11 }}>
+          {p.up}/{p.total} checks reachable
+        </div>
+      )}
+      {p.allDown && (
+        <div style={{ color: 'rgb(var(--c-status-down))', fontSize: 11, marginTop: 2 }}>
+          Agent unreachable for the entire window
+        </div>
+      )}
+      {p.hasOutage && !p.allDown && (
+        <div style={{ color: 'rgb(var(--c-status-pending))', fontSize: 11, marginTop: 2 }}>
+          ⚠ Partial outage in window
+        </div>
+      )}
+    </div>
+  );
+}
 
 function UptimeChart({
   heartbeats,
@@ -1720,84 +1849,147 @@ function UptimeChart({
   heartbeats: Heartbeat[];
   period: 'realtime' | '1h' | '24h' | '7d' | '30d';
 }) {
-  const { t } = useTranslation();
+  // Drag-to-zoom: stores a custom range overriding the period bucketing.
+  const [customRange, setCustomRange] = useState<{ from: Date; to: Date } | null>(null);
+  const [dragStart, setDragStart] = useState<number | null>(null);
+  const [dragEnd, setDragEnd]     = useState<number | null>(null);
+  const [dragging, setDragging]   = useState(false);
 
-  if (heartbeats.length === 0) return null;
+  const onMouseDown = useCallback((e: { activeLabel?: number | string | null }) => {
+    if (e?.activeLabel == null) return;
+    setDragStart(Number(e.activeLabel));
+    setDragEnd(null);
+    setDragging(true);
+  }, []);
+  const onMouseMove = useCallback((e: { activeLabel?: number | string | null }) => {
+    if (!dragging || e?.activeLabel == null) return;
+    setDragEnd(Number(e.activeLabel));
+  }, [dragging]);
+  const onMouseUp = useCallback((e: { activeLabel?: number | string | null }) => {
+    if (!dragging) return;
+    setDragging(false);
+    const l = dragStart;
+    const r = dragEnd ?? (e?.activeLabel != null ? Number(e.activeLabel) : null);
+    setDragStart(null);
+    setDragEnd(null);
+    if (l === null || r === null) return;
+    const from = new Date(Math.min(l, r));
+    const to   = new Date(Math.max(l, r));
+    if (to.getTime() - from.getTime() < 60_000) return;
+    setCustomRange({ from, to });
+  }, [dragging, dragStart, dragEnd]);
 
-  // Bucket the visible window into N segments and compute uptime % per bucket.
-  const N = 60;
-  const firstTs = new Date(heartbeats[0].createdAt).getTime();
-  const lastTs  = new Date(heartbeats[heartbeats.length - 1].createdAt).getTime();
-  const span    = Math.max(1, lastTs - firstTs);
-  const bucketMs = span / N;
+  const points = useMemo(
+    () => buildUptimePoints(heartbeats, period, customRange ?? undefined),
+    [heartbeats, period, customRange],
+  );
 
-  const buckets: Array<{ up: number; total: number }> = Array.from({ length: N }, () => ({ up: 0, total: 0 }));
-  for (const hb of heartbeats) {
-    const t = new Date(hb.createdAt).getTime();
-    let i = Math.floor((t - firstTs) / bucketMs);
-    if (i >= N) i = N - 1;
-    if (i < 0)  i = 0;
-    buckets[i].total++;
-    if (hb.status === 'up') buckets[i].up++;
-  }
+  if (heartbeats.length === 0 || points.length === 0) return null;
 
-  // Carry-forward the previous bucket's value when there are no heartbeats —
-  // avoids spurious 0%-then-100% spikes from sparse data. Initial value: 100%
-  // when the very first bucket has no data (assume online until proven otherwise).
-  const pcts: number[] = [];
-  let last = 100;
-  for (const b of buckets) {
-    if (b.total > 0) last = (b.up / b.total) * 100;
-    pcts.push(last);
-  }
+  // Per-bucket reference areas (outage shading) — orange for partial, red for full.
+  // Crucial: shading is per-bucket, never spanning the whole chart, so a single
+  // 5-min outage in a 30d window doesn't paint everything red.
+  const refAreas = points.flatMap(p => {
+    if (p.allDown)   return [{ x1: p.ts, x2: p.slotEnd, fill: 'rgb(var(--c-status-down))', opacity: 0.20 }];
+    if (p.hasOutage) return [{ x1: p.ts, x2: p.slotEnd, fill: 'rgb(var(--c-status-pending))', opacity: 0.18 }];
+    return [];
+  });
 
-  // Build SVG path. ViewBox 600 × 100 — Y axis inverted (top=100%, bottom=0%).
-  const W = 600, H = 100;
-  const stepX = W / (N - 1);
-  const points = pcts.map((p, i) => `${(i * stepX).toFixed(2)},${(H - (p * H / 100)).toFixed(2)}`);
-  const linePath = points.join(' ');
-  const areaPath = `0,${H} ${linePath} ${W},${H}`;
+  const ticks = points.filter((_, i) => i % 6 === 0).map(p => p.ts);
+  const tickLabelMap = new Map<number, string>();
+  for (const p of points) tickLabelMap.set(p.ts, p.tickLabel);
+  const tickFormatter = (ts: number) => tickLabelMap.get(ts) ?? '';
 
-  // Pick the color band per the *worst* bucket — gives a quick visual sense of
-  // whether anything dipped during the window.
-  const minPct = Math.min(...pcts);
-  const stroke =
-    minPct >= 99 ? 'rgb(var(--c-status-up))' :
-    minPct >= 95 ? 'rgb(var(--c-status-pending))' :
-                   'rgb(var(--c-status-down))';
-
-  // 4 horizontal grid lines: 0 / 50 / 95 / 100 %
-  const gridLines = [0, 50, 95, 100];
+  const domain: [number, number] = [points[0].ts, points[points.length - 1].slotEnd];
 
   return (
-    <div className="space-y-2">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-[160px]">
-        <defs>
-          <linearGradient id="uptime-area" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%"   stopColor={stroke} stopOpacity="0.30" />
-            <stop offset="100%" stopColor={stroke} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {/* Grid */}
-        {gridLines.map(g => (
-          <line key={g}
-            x1="0" x2={W}
-            y1={H - (g * H / 100)} y2={H - (g * H / 100)}
-            stroke="rgb(var(--c-border) / 0.45)"
-            strokeWidth="0.5"
-            strokeDasharray={g === 100 ? '' : '2 3'}
+    <div className="space-y-2" style={{ position: 'relative', userSelect: 'none' }}>
+      {customRange && (
+        <button
+          onClick={() => setCustomRange(null)}
+          title="Revenir à la période d'origine"
+          style={{
+            position: 'absolute', top: -2, right: 0, zIndex: 10,
+            display: 'flex', alignItems: 'center', gap: 4,
+            background: 'rgb(var(--c-bg-secondary) / 0.92)', border: '1px solid rgb(var(--c-border))',
+            borderRadius: 6, padding: '3px 8px', fontSize: 11,
+            color: 'rgb(var(--c-text-secondary))', cursor: 'pointer', lineHeight: 1.4,
+          }}
+        >
+          ↺ Reset zoom
+        </button>
+      )}
+      {!customRange && (
+        <div style={{
+          position: 'absolute', top: -2, right: 0, zIndex: 10,
+          fontSize: 10, color: 'rgb(var(--c-text-muted))', pointerEvents: 'none',
+        }}>
+          Glisser pour zoomer
+        </div>
+      )}
+
+      <ResponsiveContainer width="100%" height={180}>
+        <AreaChart
+          data={points}
+          margin={{ top: 8, right: 5, bottom: 5, left: 5 }}
+          onMouseDown={onMouseDown as any}
+          onMouseMove={onMouseMove as any}
+          onMouseUp={onMouseUp as any}
+          style={{ cursor: 'crosshair' }}
+        >
+          <defs>
+            <linearGradient id="uptime-up" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"  stopColor="rgb(var(--c-status-up))" stopOpacity={0.32} />
+              <stop offset="95%" stopColor="rgb(var(--c-status-up))" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+
+          {refAreas.map((a, i) => (
+            <ReferenceArea key={`u-ra-${i}`} x1={a.x1} x2={a.x2}
+              fill={a.fill} fillOpacity={a.opacity} stroke="none" />
+          ))}
+
+          {dragging && dragStart !== null && dragEnd !== null && (
+            <ReferenceArea
+              x1={Math.min(dragStart, dragEnd)}
+              x2={Math.max(dragStart, dragEnd)}
+              fill="rgb(var(--c-accent))" fillOpacity={0.10}
+              stroke="rgb(var(--c-accent))" strokeOpacity={0.5} strokeWidth={1}
+            />
+          )}
+
+          <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--c-border))" />
+
+          <XAxis
+            dataKey="ts" type="number" scale="time"
+            domain={domain}
+            ticks={ticks}
+            tickFormatter={tickFormatter}
+            tick={{ fill: 'rgb(var(--c-text-muted))', fontSize: 10 }}
+            stroke="rgb(var(--c-border))"
           />
-        ))}
-        {/* Area + line */}
-        <polygon points={areaPath} fill="url(#uptime-area)" />
-        <polyline points={linePath} fill="none" stroke={stroke} strokeWidth="1.5" />
-      </svg>
-      {/* Y axis labels (right side) + X axis range (left/right) */}
-      <div className="flex items-center justify-between text-[10px] font-mono text-text-muted">
-        <span>{fmtTimestampShort(heartbeats[0].createdAt, period)}</span>
-        <span>{t('agent.uptime.scale', 'Scale')}: 0% – 100%</span>
-        <span>{fmtTimestampShort(heartbeats[heartbeats.length - 1].createdAt, period)}</span>
-      </div>
+          <YAxis
+            tick={{ fill: 'rgb(var(--c-text-muted))', fontSize: 11 }}
+            stroke="rgb(var(--c-border))"
+            domain={[0, 100]}
+            ticks={[0, 50, 95, 100]}
+            unit="%"
+            width={50}
+          />
+
+          {!dragging && <Tooltip content={<UptimeTooltip />} />}
+
+          <Area
+            type="monotone"
+            dataKey="pct"
+            stroke="rgb(var(--c-status-up))"
+            strokeWidth={2}
+            fill="url(#uptime-up)"
+            isAnimationActive={false}
+            dot={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
   );
 }

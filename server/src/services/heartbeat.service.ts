@@ -265,7 +265,18 @@ export const heartbeatService = {
       return rows.map(rowToHeartbeat);
     }
 
-    // Downsample: use nth-row sampling but keep ALL non-UP heartbeats
+    // Downsample: use nth-row sampling but keep ALL non-UP heartbeats.
+    //
+    // No LIMIT here — the modulo sampling already bounds the result to
+    // ~maxPoints (plus the small set of non-UP rows we always preserve for
+    // incident visibility). Adding `LIMIT maxPoints` on top of an ASC sort
+    // truncated the END of the window, causing the chart to flatline before
+    // "now" once total > maxPoints (e.g. 24h view with a 1-push/min agent
+    // dropped everything after roughly the 500th oldest minute).
+    //
+    // Worst-case row count: maxPoints + non_up_count. In a healthy monitor
+    // that is essentially maxPoints; in a noisy one it stays bounded by the
+    // raw incident count, which is far smaller than the total push rate.
     const nth = Math.ceil(total / maxPoints);
     const result = await db.raw(`
       SELECT * FROM (
@@ -275,8 +286,7 @@ export const heartbeatService = {
       ) sub
       WHERE rn % ? = 1 OR status != 'up'
       ORDER BY created_at ASC
-      LIMIT ?
-    `, [monitorId, since, nth, maxPoints]);
+    `, [monitorId, since, nth]);
 
     return (result.rows as HeartbeatRow[]).map(rowToHeartbeat);
   },
