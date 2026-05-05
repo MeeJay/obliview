@@ -1755,19 +1755,32 @@ function buildUptimePoints(
   const span = rangeEnd - rangeStart;
   const bucketMs = span / N;
 
-  // Tick / tooltip formatting — same scale as the monitor HeartbeatChart
+  // Tick / tooltip formatting. Tooltip always shows the FULL bucket range
+  // (start -> end) so the user knows exactly which slice of time they are
+  // hovering — important on 7d / 30d where each bucket spans several hours
+  // and the start-only label hides the precision the user is looking for.
   const rangeHours = span / 3_600_000;
   let tickLabelFn: (ts: number) => string;
-  let fullLabelFn: (d: Date) => string;
+  let fullLabelFn: (start: Date, end: Date) => string;
   if (rangeHours < 2) {
     tickLabelFn = ts => _upFmtHms(new Date(ts));
-    fullLabelFn = _upFmtHms;
+    fullLabelFn = (s, e) => `${_upFmtHms(s)} – ${_upFmtHms(e)}`;
   } else if (rangeHours < 72) {
     tickLabelFn = ts => _upFmtHm(new Date(ts));
-    fullLabelFn = _upFmtDateHm;
+    fullLabelFn = (s, e) => {
+      const sameDay = s.toDateString() === e.toDateString();
+      return sameDay
+        ? `${_upFmtDate(s)} ${_upFmtHm(s)} – ${_upFmtHm(e)}`
+        : `${_upFmtDateHm(s)} – ${_upFmtDateHm(e)}`;
+    };
   } else {
     tickLabelFn = ts => _upFmtDate(new Date(ts));
-    fullLabelFn = _upFmtDate;
+    fullLabelFn = (s, e) => {
+      const sameDay = s.toDateString() === e.toDateString();
+      return sameDay
+        ? `${_upFmtDate(s)} ${_upFmtHm(s)} – ${_upFmtHm(e)}`
+        : `${_upFmtDateHm(s)} – ${_upFmtDateHm(e)}`;
+    };
   }
 
   const slotList = Array.from({ length: N }, (_, i) => rangeStart + i * bucketMs);
@@ -1788,7 +1801,7 @@ function buildUptimePoints(
   let last = 100;
   return slotList.map(ts => {
     const b = buckets.get(ts)!;
-    const d = new Date(ts);
+    const slotEnd = ts + bucketMs;
     if (b.total > 0) last = (b.up / b.total) * 100;
     const pct = last;
     return {
@@ -1798,8 +1811,8 @@ function buildUptimePoints(
       total: b.total,
       hasOutage: b.total > 0 && b.up < b.total,
       allDown:   b.total > 0 && b.up === 0,
-      fullLabel: fullLabelFn(d),
-      slotEnd: ts + bucketMs,
+      fullLabel: fullLabelFn(new Date(ts), new Date(slotEnd)),
+      slotEnd,
       tickLabel: tickLabelFn(ts),
     };
   });
