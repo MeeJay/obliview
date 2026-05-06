@@ -506,7 +506,11 @@ router.get('/sso-logout-url', async (req, res) => {
 
 /**
  * GET /api/auth/connected-apps
- * Returns list of connected apps from Obligate (for cross-app nav buttons).
+ * Returns list of connected apps from Obligate, scoped to the apps the
+ * current user actually has access to (via at least one
+ * permission_group_app_mapping in Obligate). Apps the user has no
+ * permission on are not returned, so the topbar app switcher hides them
+ * entirely instead of showing greyed-out pills.
  */
 router.get('/connected-apps', async (req, res) => {
   try {
@@ -514,7 +518,19 @@ router.get('/connected-apps', async (req, res) => {
       res.status(401).json({ success: false, error: 'Authentication required' });
       return;
     }
-    const apps = await obligateService.getConnectedApps();
+    // Obligate keys users by `obligate_user_id` (= local users.foreign_id when
+    // foreign_source = 'obligate'). Local-only users have no foreign_id; for
+    // them we fall back to the legacy unfiltered list — they wouldn't have
+    // SSO access to other apps anyway, but returning an empty array would
+    // hide every cross-app pill which is worse UX than the current state.
+    const local = await db('users')
+      .where({ id: req.session.userId })
+      .select('foreign_source', 'foreign_id')
+      .first() as { foreign_source: string | null; foreign_id: number | null } | undefined;
+    const obligateUserId = local?.foreign_source === 'obligate' && local.foreign_id
+      ? local.foreign_id
+      : null;
+    const apps = await obligateService.getConnectedApps(obligateUserId);
     res.json({ success: true, data: apps });
   } catch (err) {
     res.json({ success: true, data: [] });

@@ -230,13 +230,24 @@ export const obligateService = {
 
   /**
    * Get the list of connected apps from Obligate (for cross-app nav buttons).
+   *
+   * When `obligateUserId` is provided, the Obligate-side endpoint filters the
+   * list to only the apps this user has at least one permission mapping on
+   * (or all apps when the user is a platform admin). When omitted (local
+   * user without an Obligate identity), falls back to the unfiltered list.
    */
-  async getConnectedApps(): Promise<Array<{ appType: string; name: string; baseUrl: string; icon: string | null; color: string | null }>> {
+  async getConnectedApps(
+    obligateUserId?: number | null,
+  ): Promise<Array<{ appType: string; name: string; baseUrl: string; icon: string | null; color: string | null }>> {
     const raw = await appConfigService.getObligateRaw();
     if (!raw.url || !raw.apiKey) return [];
 
+    const url = obligateUserId
+      ? `${raw.url}/api/apps/connected?userId=${encodeURIComponent(obligateUserId)}`
+      : `${raw.url}/api/apps/connected`;
+
     try {
-      const res = await fetch(`${raw.url}/api/apps/connected`, {
+      const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${raw.apiKey}` },
       });
       if (!res.ok) return [];
