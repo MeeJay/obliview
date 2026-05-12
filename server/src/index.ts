@@ -16,7 +16,6 @@ import { setAgentServiceIO, agentService } from './services/agent.service';
 import { maintenanceService } from './services/maintenance.service';
 import { setLiveAlertIO } from './services/liveAlert.service';
 import { agentHub } from './services/agentHub.service';
-import { obligateService } from './services/obligate.service';
 
 async function main() {
   // 1. Run pending migrations
@@ -107,9 +106,6 @@ async function main() {
     logger.info(`Obliview server listening on port ${config.port}`);
     logger.info(`Environment: ${config.nodeEnv}`);
     logger.info(`Active monitors: ${workerManager.getRunningCount()}`);
-
-    // Sync capability schemas with Obligate (non-blocking)
-    obligateService.syncCapabilitySchemas().catch(() => {});
   });
 
   // 8. Heartbeat retention job — purge heartbeats older than 90 days every 6 hours

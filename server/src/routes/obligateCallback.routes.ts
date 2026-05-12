@@ -140,18 +140,6 @@ router.get('/callback', async (req, res) => {
           .insert({ user_id: localUserId, tenant_id: tenant.id, role: t.role === 'admin' ? 'admin' : 'member' })
           .onConflict(['user_id', 'tenant_id'])
           .merge({ role: t.role === 'admin' ? 'admin' : 'member' });
-
-        if (t.capabilities?.length) {
-          const userTeamIds = await db('team_memberships')
-            .join('user_teams', 'user_teams.id', 'team_memberships.team_id')
-            .where({ 'team_memberships.user_id': localUserId, 'user_teams.tenant_id': tenant.id })
-            .pluck('team_memberships.team_id') as number[];
-          for (const teamId of userTeamIds) {
-            await db('team_permissions')
-              .where({ team_id: teamId })
-              .update({ capabilities: JSON.stringify(t.capabilities) });
-          }
-        }
       }
     }
 
