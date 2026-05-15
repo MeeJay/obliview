@@ -6,12 +6,13 @@ import { teamService } from '../services/team.service';
 import { groupNotificationService } from '../services/groupNotification.service';
 import { AppError } from '../middleware/errorHandler';
 import type { CreateGroupInput, UpdateGroupInput, MoveGroupInput } from '../validators/group.schema';
+import { getEffectiveTenantScope } from '../utils/tenantScope';
 
 export const groupsController = {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const isAdmin = req.session.role === 'admin';
-      const allGroups = await groupService.getAll(req.tenantId);
+      const allGroups = await groupService.getAll(getEffectiveTenantScope(req));
 
       if (isAdmin) {
         res.json({ success: true, data: allGroups });

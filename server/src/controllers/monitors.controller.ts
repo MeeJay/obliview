@@ -10,6 +10,7 @@ import { AppError } from '../middleware/errorHandler';
 import type { CreateMonitorInput, BulkUpdateInput } from '../validators/monitor.schema';
 import { maintenanceService } from '../services/maintenance.service';
 import { agentHub } from '../services/agentHub.service';
+import { getEffectiveTenantScope } from '../utils/tenantScope';
 
 /** Broadcast a monitor event to all admin clients (and tenant-scoped admin room). */
 function emitMonitorEvent(req: Request, event: string, payload: unknown): void {
@@ -23,13 +24,14 @@ export const monitorsController = {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const isAdmin = req.session.role === 'admin';
+      const tenantScope = getEffectiveTenantScope(req);
       const visibleIds = await permissionService.getVisibleMonitorIds(req.session.userId!, isAdmin);
 
       let monitors;
       if (visibleIds === 'all') {
-        monitors = await monitorService.getAll(req.tenantId);
+        monitors = await monitorService.getAll(tenantScope);
       } else {
-        monitors = await monitorService.getByIds(visibleIds, req.tenantId);
+        monitors = await monitorService.getByIds(visibleIds, tenantScope ?? undefined);
       }
 
       // Batch-resolve maintenance state for all monitors (single DB round-trip)

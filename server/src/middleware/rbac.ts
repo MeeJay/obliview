@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { UserRole } from '@obliview/shared';
+import { isMasterTenant } from '@obliview/shared';
 import { AppError } from './errorHandler';
 import { permissionService } from '../services/permission.service';
 
@@ -69,5 +70,63 @@ export function requireCanCreate() {
     } catch (err) {
       next(err);
     }
+  };
+}
+
+/**
+ * Require a tenant-wide capability resolved from the active permission_set
+ * attached to the user via user_tenants.role.
+ *
+ * Order of checks:
+ *   1. Platform admins (users.role='admin') always pass — they sit above the
+ *      tenant capability matrix.
+ *   2. Tenant role='admin' short-circuits (see permission.service).
+ *   3. Otherwise the capability must be present in the permission_set.
+ *
+ * Must be applied AFTER `requireAuth` and `requireTenant`.
+ */
+export function requireTenantCapability(capability: string) {
+  return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (req.session.role === 'admin') return next();
+      const ok = await permissionService.userHasTenantCapability(
+        req.session.userId!,
+        req.tenantId,
+        capability,
+      );
+      if (!ok) return next(new AppError(403, `Missing capability: ${capability}`));
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+/**
+ * Require the caller to be a platform admin (users.role='admin').
+ * This is the global, tenant-agnostic admin gate — distinct from a
+ * tenant-scoped 'admin' role carried by user_tenants.
+ */
+export function requirePlatformAdmin() {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (req.session.role !== 'admin') {
+      next(new AppError(403, 'Platform admin required'));
+      return;
+    }
+    next();
+  };
+}
+
+/**
+ * Require the active tenant to be the master tenant (God View). Combine with
+ * requirePlatformAdmin() for endpoints that fan out across all tenants.
+ */
+export function requireMasterTenant() {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (!isMasterTenant(req.tenantId)) {
+      next(new AppError(403, 'Master tenant required'));
+      return;
+    }
+    next();
   };
 }

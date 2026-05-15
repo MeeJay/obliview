@@ -60,8 +60,10 @@ async function ensureUniqueSlug(slug: string, excludeId?: number): Promise<strin
 }
 
 export const groupService = {
-  async getAll(tenantId: number): Promise<MonitorGroup[]> {
-    const rows = await db<GroupRow>('monitor_groups').where({ tenant_id: tenantId }).orderBy('sort_order').orderBy('name');
+  async getAll(tenantId: number | null): Promise<MonitorGroup[]> {
+    const query = db<GroupRow>('monitor_groups').orderBy('sort_order').orderBy('name');
+    if (tenantId !== null) query.where({ tenant_id: tenantId });
+    const rows = await query;
     return rows.map(rowToGroup);
   },
 

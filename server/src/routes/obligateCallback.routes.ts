@@ -136,10 +136,16 @@ router.get('/callback', async (req, res) => {
       const tenant = await db('tenants').where({ slug: t.slug }).first() as { id: number } | undefined;
       if (tenant) {
         userTenantIds.push(tenant.id);
+        // t.role is a permission_set slug coming from Obligate's
+        // permission_group_app_mappings.app_role. We persist it as-is so
+        // custom slugs (beyond the legacy admin|user|viewer triplet) survive
+        // the SSO sync. An unknown slug resolves to no capabilities at
+        // runtime — fail-closed by design.
+        const role = t.role || 'user';
         await db('user_tenants')
-          .insert({ user_id: localUserId, tenant_id: tenant.id, role: t.role === 'admin' ? 'admin' : 'member' })
+          .insert({ user_id: localUserId, tenant_id: tenant.id, role })
           .onConflict(['user_id', 'tenant_id'])
-          .merge({ role: t.role === 'admin' ? 'admin' : 'member' });
+          .merge({ role });
       }
     }
 

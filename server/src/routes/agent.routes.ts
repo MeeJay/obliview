@@ -13,6 +13,8 @@ import {
   agentInstallerWindows,
   agentInstallerWindowsMsi,
   agentInstallerMacos,
+  agentInstallerFreebsd,
+  agentInstallerWizard,
   listKeys,
   createKey,
   deleteKey,
@@ -62,6 +64,7 @@ router.get('/desktop-version', desktopVersion);
 router.get('/installer/linux', agentInstallerLinux);
 router.get('/installer/windows', agentInstallerWindows);
 router.get('/installer/macos', agentInstallerMacos);
+router.get('/installer/freebsd', agentInstallerFreebsd);
 
 // Pre-built Windows MSI (static, SERVERURL + APIKEY passed via msiexec properties)
 router.get('/installer/windows.msi', agentInstallerWindowsMsi);
@@ -71,6 +74,10 @@ router.get('/installer/windows.msi', agentInstallerWindowsMsi);
 router.get('/keys', requireAuth, requireRole('admin'), requireTenant, listKeys);
 router.post('/keys', requireAuth, requireRole('admin'), requireTenant, createKey);
 router.delete('/keys/:id', requireAuth, requireRole('admin'), requireTenant, deleteKey);
+
+// Manual-install Wizard download (admin-only, tenant-scoped key lookup,
+// embeds {serverUrl, apiKey} as a tail blob on the wizard binary).
+router.get('/installer/wizard.exe', requireAuth, requireRole('admin'), requireTenant, agentInstallerWizard);
 
 // ⚠️ Bulk routes MUST be declared before /:id routes — otherwise Express matches
 //    "bulk" as a device ID and the wrong handler fires.

@@ -287,13 +287,14 @@ export const agentService = {
 
   // ── API Keys ────────────────────────────────────────────
 
-  async listKeys(tenantId: number): Promise<AgentApiKey[]> {
-    const rows = await db('agent_api_keys as k')
+  async listKeys(tenantId: number | null): Promise<AgentApiKey[]> {
+    const query = db('agent_api_keys as k')
       .leftJoin('agent_devices as d', 'k.id', 'd.api_key_id')
-      .where({ 'k.tenant_id': tenantId })
       .groupBy('k.id')
       .select('k.*', db.raw('COUNT(d.id) as device_count'))
-      .orderBy('k.created_at', 'desc') as AgentApiKeyRow[];
+      .orderBy('k.created_at', 'desc');
+    if (tenantId !== null) query.where({ 'k.tenant_id': tenantId });
+    const rows = await query as AgentApiKeyRow[];
     return rows.map(rowToApiKey);
   },
 
@@ -311,11 +312,11 @@ export const agentService = {
 
   // ── Devices ─────────────────────────────────────────────
 
-  async listDevices(tenantId: number, status?: AgentDevice['status']): Promise<AgentDevice[]> {
+  async listDevices(tenantId: number | null, status?: AgentDevice['status']): Promise<AgentDevice[]> {
     const query = db('agent_devices')
-      .where({ tenant_id: tenantId })
       .select('*')
       .orderBy('created_at', 'desc');
+    if (tenantId !== null) query.where({ tenant_id: tenantId });
     if (status) query.where({ status });
     const rows = await query as AgentDeviceRow[];
 

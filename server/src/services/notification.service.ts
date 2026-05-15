@@ -58,7 +58,11 @@ function rowToBinding(row: BindingRow): NotificationBinding {
 export const notificationService = {
   // ── Channel CRUD ──
 
-  async getAllChannels(tenantId: number): Promise<NotificationChannel[]> {
+  async getAllChannels(tenantId: number | null): Promise<NotificationChannel[]> {
+    if (tenantId === null) {
+      const rows = await db<ChannelRow>('notification_channels').orderBy('name');
+      return rows.map((row) => rowToChannel(row));
+    }
     // Own channels + channels shared to this tenant via the junction table
     const rows = await db<ChannelRow>('notification_channels')
       .where(function () {

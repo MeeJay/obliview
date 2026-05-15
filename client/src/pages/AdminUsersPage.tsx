@@ -27,6 +27,8 @@ import type {
   PermissionScope,
   UserTenantAssignment,
 } from '@obliview/shared';
+import { isMasterTenant } from '@obliview/shared';
+import apiClient from '@/api/client';
 import { usersApi } from '@/api/users.api';
 import { teamsApi } from '@/api/teams.api';
 import { groupsApi } from '@/api/groups.api';
@@ -44,14 +46,20 @@ import { PermissionSetsTab } from '@/components/PermissionSetsTab';
 type Tab = 'users' | 'teams' | 'permissionSets';
 type UserFormMode = 'create' | 'edit' | 'password' | null;
 type TeamFormMode = 'create' | 'edit' | null;
-type TenantDraft = Record<number, { isMember: boolean; role: 'admin' | 'member' }>;
+type TenantDraft = Record<number, { isMember: boolean; role: string }>;
+
+interface PermissionSetSummary {
+  slug: string;
+  name: string;
+  isDefault: boolean;
+}
 
 export function AdminUsersPage() {
   const { t } = useTranslation();
   const { user: currentUser } = useAuthStore();
   const { tenants: storeTenants, currentTenantId } = useTenantStore();
   const isPlatformAdmin = currentUser?.role === 'admin';
-  const isDefaultTenant = currentTenantId === 1;
+  const isDefaultTenant = isMasterTenant(currentTenantId);
   const [tab, setTab] = useState<Tab>('users');
 
   // Data
@@ -97,6 +105,17 @@ export function AdminUsersPage() {
   const [tenantDraft, setTenantDraft] = useState<TenantDraft>({});
   const [tenantPanelLoading, setTenantPanelLoading] = useState(false);
   const [tenantSaving, setTenantSaving] = useState(false);
+
+  // Available permission_set slugs (feeds the tenant role dropdown). Includes
+  // 'admin' implicitly even when not in the table — that slug is the canonical
+  // tenant-admin escape hatch (short-circuit in permission.service).
+  const [permissionSets, setPermissionSets] = useState<PermissionSetSummary[]>([]);
+  useEffect(() => {
+    apiClient
+      .get<{ success: boolean; data: PermissionSetSummary[] }>('/permission-sets')
+      .then((res) => setPermissionSets(res.data.data ?? []))
+      .catch(() => setPermissionSets([]));
+  }, []);
 
   const load = async () => {
     try {
@@ -352,12 +371,12 @@ export function AdminUsersPage() {
 
   const toggleTenantMember = (tenantId: number) => {
     setTenantDraft((prev) => {
-      const current = prev[tenantId] ?? { isMember: false, role: 'member' as const };
+      const current = prev[tenantId] ?? { isMember: false, role: 'user' };
       return { ...prev, [tenantId]: { ...current, isMember: !current.isMember } };
     });
   };
 
-  const setTenantRole = (tenantId: number, role: 'admin' | 'member') => {
+  const setTenantRole = (tenantId: number, role: string) => {
     setTenantDraft((prev) => {
       const current = prev[tenantId] ?? { isMember: true, role };
       return { ...prev, [tenantId]: { ...current, role } };
@@ -1052,30 +1071,29 @@ export function AdminUsersPage() {
                           />
                         </button>
                       </div>
-                      {/* Role buttons — only when assigned */}
+                      {/* Role selector — only when assigned. Driven by permission_sets;
+                          'admin' is appended explicitly because it short-circuits the
+                          capability matrix (tenant-admin escape hatch). */}
                       {draft.isMember && (
-                        <div className="flex items-center gap-1 mt-2">
-                          <span className="text-[10px] text-text-muted mr-1">Role:</span>
-                          <button
-                            onClick={() => setTenantRole(assignment.tenantId, 'member')}
-                            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                              draft.role === 'member'
-                                ? 'bg-bg-tertiary text-text-primary border border-border'
-                                : 'text-text-muted hover:bg-bg-hover'
-                            }`}
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-[10px] text-text-muted">Role:</span>
+                          <select
+                            value={draft.role}
+                            onChange={(e) => setTenantRole(assignment.tenantId, e.target.value)}
+                            className="bg-bg-tertiary border border-border rounded px-2 py-1 text-[11px] text-text-primary focus:outline-none focus:border-accent"
                           >
-                            Member
-                          </button>
-                          <button
-                            onClick={() => setTenantRole(assignment.tenantId, 'admin')}
-                            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                              draft.role === 'admin'
-                                ? 'bg-accent/10 text-accent border border-accent/20'
-                                : 'text-text-muted hover:bg-bg-hover'
-                            }`}
-                          >
-                            <Shield size={10} className="inline mr-0.5" />Admin
-                          </button>
+                            <option value="admin">Admin</option>
+                            {permissionSets
+                              .filter((ps) => ps.slug !== 'admin')
+                              .map((ps) => (
+                                <option key={ps.slug} value={ps.slug}>
+                                  {ps.name}
+                                </option>
+                              ))}
+                          </select>
+                          {draft.role === 'admin' && (
+                            <Shield size={10} className="text-accent" />
+                          )}
                         </div>
                       )}
                     </div>

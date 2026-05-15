@@ -221,8 +221,8 @@ function monitorToRow(data: Partial<Monitor>): Record<string, unknown> {
 }
 
 export const monitorService = {
-  async getAll(tenantId: number): Promise<Monitor[]> {
-    const rows = await monitorBaseQuery(tenantId).orderBy('monitors.name');
+  async getAll(tenantId: number | null): Promise<Monitor[]> {
+    const rows = await monitorBaseQuery(tenantId ?? undefined).orderBy('monitors.name');
     return rows.map(rowToMonitor);
   },
 

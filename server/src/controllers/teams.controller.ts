@@ -7,15 +7,18 @@ import type {
   SetTeamMembersInput,
   SetTeamPermissionsInput,
 } from '../validators/team.schema';
+import { getEffectiveTenantScope } from '../utils/tenantScope';
 
 export const teamsController = {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      // Platform admins can request all teams across tenants via ?scope=all
-      // Otherwise scope to the current tenant from session
+      // Platform admins connected to the master tenant get cross-tenant fan-out
+      // automatically. Legacy ?scope=all is preserved for non-master callers
+      // who still want to request the wide list explicitly.
       const isPlatformAdmin = req.session.role === 'admin';
-      const scopeAll = isPlatformAdmin && req.query.scope === 'all';
-      const teams = await teamService.getAll(scopeAll ? null : req.tenantId);
+      const legacyScopeAll = isPlatformAdmin && req.query.scope === 'all';
+      const scope = legacyScopeAll ? null : getEffectiveTenantScope(req);
+      const teams = await teamService.getAll(scope);
       res.json({ success: true, data: teams });
     } catch (err) {
       next(err);

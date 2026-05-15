@@ -49,7 +49,7 @@ export const usersApi = {
 
   async setTenants(
     id: number,
-    assignments: { tenantId: number; role: 'admin' | 'member' }[],
+    assignments: { tenantId: number; role: string }[],
   ): Promise<void> {
     await apiClient.put(`/users/${id}/tenants`, { assignments });
   },

@@ -4,6 +4,7 @@ import fs from 'fs';
 import { agentService } from '../services/agent.service';
 import { maintenanceService } from '../services/maintenance.service';
 import type { AgentThresholds } from '@obliview/shared';
+import { getEffectiveTenantScope } from '../utils/tenantScope';
 
 // ── Push endpoint (called by agent) ──────────────────────────────────────────
 
@@ -88,12 +89,14 @@ export function desktopVersion(_req: Request, res: Response): void {
 const ALLOWED_AGENT_BINARIES: Record<string, string> = {
   // Windows: full MSI installer (handles service, PawnIO driver, etc.)
   'obliview-agent.msi':             'obliview-agent.msi',
-  // Windows: bare exe (kept for manual / legacy use)
+  // Windows: bare exe (kept for manual / legacy use — Server 2008 R2 path)
   'obliview-agent.exe':             'obliview-agent.exe',
   'obliview-agent-linux-amd64':     'obliview-agent-linux-amd64',
   'obliview-agent-linux-arm64':     'obliview-agent-linux-arm64',
   'obliview-agent-darwin-amd64':    'obliview-agent-darwin-amd64',
   'obliview-agent-darwin-arm64':    'obliview-agent-darwin-arm64',
+  'obliview-agent-freebsd-amd64':   'obliview-agent-freebsd-amd64',
+  'obliview-agent-freebsd-arm64':   'obliview-agent-freebsd-arm64',
 };
 
 export function agentDownload(req: Request, res: Response): void {
@@ -185,6 +188,28 @@ export function agentInstallerMacos(req: Request, res: Response): void {
   res.send(script);
 }
 
+export function agentInstallerFreebsd(req: Request, res: Response): void {
+  const apiKey = req.query.key as string | undefined;
+
+  const scriptPath = path.resolve(__dirname, '../../../../agent/installer/install-freebsd.sh');
+  if (!fs.existsSync(scriptPath)) {
+    res.status(404).json({ error: 'FreeBSD installer not available' });
+    return;
+  }
+
+  let script = fs.readFileSync(scriptPath, 'utf-8');
+
+  const serverUrl = `${req.protocol}://${req.get('host')}`;
+  script = script.replace('__SERVER_URL__', serverUrl);
+  if (apiKey) {
+    script = script.replace('__API_KEY__', apiKey);
+  }
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="install-freebsd.sh"');
+  res.send(script);
+}
+
 export function agentInstallerWindowsMsi(_req: Request, res: Response): void {
   const msiPath = path.resolve(__dirname, '../../../../agent/dist/obliview-agent.msi');
   if (!fs.existsSync(msiPath)) {
@@ -197,10 +222,62 @@ export function agentInstallerWindowsMsi(_req: Request, res: Response): void {
   res.sendFile(msiPath);
 }
 
+/**
+ * Serve the manual-install Wizard with a config tail blob appended.
+ * Layout: <static wizard.exe bytes><JSON config><magic "OBLI_CFG" (8B)><uint32 LE length>
+ * The wizard reads its own .exe at startup and unwinds the tail to pre-fill its
+ * server URL + API key fields. The MSI inside stays Authenticode-signed —
+ * only the outer wizard wrapper has its signature broken by the tail append.
+ */
+export async function agentInstallerWizard(req: Request, res: Response): Promise<void> {
+  try {
+    const keyIdRaw = req.query.keyId as string | undefined;
+    const keyId = Number(keyIdRaw);
+    if (!keyIdRaw || !Number.isFinite(keyId)) {
+      res.status(400).json({ error: 'keyId query param required' });
+      return;
+    }
+
+    const tenantScope = getEffectiveTenantScope(req);
+    const keys = await agentService.listKeys(tenantScope);
+    const key = keys.find((k) => k.id === keyId);
+    if (!key) {
+      res.status(404).json({ error: 'API key not found' });
+      return;
+    }
+
+    const wizardPath = path.resolve(__dirname, '../../../../agent/dist/obliview-install-wizard.exe');
+    if (!fs.existsSync(wizardPath)) {
+      res.status(404).json({ error: 'Wizard not available (not yet built)' });
+      return;
+    }
+
+    const serverUrl = (req.query.server as string | undefined)
+      || `${(req.headers['x-forwarded-proto'] as string | undefined) || req.protocol}://${(req.headers['x-forwarded-host'] as string | undefined) || req.get('host')}`;
+
+    const cfg = JSON.stringify({ serverUrl, apiKey: key.key });
+    const cfgBuf = Buffer.from(cfg, 'utf8');
+    const magic = Buffer.from('OBLI_CFG', 'utf8');
+    const lenBuf = Buffer.alloc(4);
+    lenBuf.writeUInt32LE(cfgBuf.length, 0);
+    const tail = Buffer.concat([cfgBuf, magic, lenBuf]);
+
+    const exe = fs.readFileSync(wizardPath);
+    const out = Buffer.concat([exe, tail]);
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="obliview-install-wizard.exe"');
+    res.setHeader('Content-Length', out.length.toString());
+    res.send(out);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to build wizard', detail: (err as Error).message });
+  }
+}
+
 // ── Admin: API Keys ──────────────────────────────────────────────────────────
 
 export async function listKeys(req: Request, res: Response): Promise<void> {
-  const keys = await agentService.listKeys(req.tenantId);
+  const keys = await agentService.listKeys(getEffectiveTenantScope(req));
   res.json({ success: true, data: keys });
 }
 
@@ -242,7 +319,7 @@ export async function listDevices(req: Request, res: Response): Promise<void> {
   const status = req.query.status as string | undefined;
   const validStatuses = ['pending', 'approved', 'refused', 'suspended'];
   const devices = await agentService.listDevices(
-    req.tenantId,
+    getEffectiveTenantScope(req),
     validStatuses.includes(status ?? '') ? (status as 'pending' | 'approved' | 'refused' | 'suspended') : undefined,
   );
 

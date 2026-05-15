@@ -7,11 +7,12 @@ import type {
   OverrideModeR,
   RemediationTrigger,
 } from '@obliview/shared';
+import { getEffectiveTenantScope } from '../utils/tenantScope';
 
 // ── Actions ────────────────────────────────────────────────────────────────────
 
 export async function listActions(req: Request, res: Response) {
-  const actions = await remediationService.listActions(req.tenantId);
+  const actions = await remediationService.listActions(getEffectiveTenantScope(req));
   res.json({ data: actions });
 }
 

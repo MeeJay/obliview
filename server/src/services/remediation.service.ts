@@ -170,8 +170,10 @@ export const remediationService = {
 
   // ── Action CRUD ─────────────────────────────────────────────────────────────
 
-  async listActions(tenantId: number): Promise<RemediationAction[]> {
-    const rows = await db<ActionRow>('remediation_actions').where({ tenant_id: tenantId }).orderBy('name');
+  async listActions(tenantId: number | null): Promise<RemediationAction[]> {
+    const query = db<ActionRow>('remediation_actions').orderBy('name');
+    if (tenantId !== null) query.where({ tenant_id: tenantId });
+    const rows = await query;
     return rows.map(rowToAction);
   },
 

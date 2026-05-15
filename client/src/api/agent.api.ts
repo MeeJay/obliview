@@ -125,7 +125,16 @@ export const agentApi = {
     return `${window.location.origin}/api/agent/installer/macos?key=${encodeURIComponent(apiKey)}`;
   },
 
+  getInstallerFreebsdUrl(apiKey: string): string {
+    return `${window.location.origin}/api/agent/installer/freebsd?key=${encodeURIComponent(apiKey)}`;
+  },
+
   getMsiUrl(): string {
     return `${window.location.origin}/api/agent/installer/windows.msi`;
+  },
+
+  /** Download URL for the manual-install wizard (.exe with embedded MSI + config tail). */
+  getWizardUrl(keyId: number): string {
+    return `${window.location.origin}/api/agent/installer/wizard.exe?keyId=${keyId}`;
   },
 };

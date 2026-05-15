@@ -167,8 +167,9 @@ let transitionTimer: ReturnType<typeof setInterval> | null = null;
 export const maintenanceService = {
   // ── CRUD ──────────────────────────────────────────────────────────────────
 
-  async list(tenantId: number, filters?: { scopeType?: string; scopeId?: number }): Promise<MaintenanceWindow[]> {
-    const query = db<MaintenanceWindowRow>('maintenance_windows').where({ tenant_id: tenantId }).orderBy('created_at', 'desc');
+  async list(tenantId: number | null, filters?: { scopeType?: string; scopeId?: number }): Promise<MaintenanceWindow[]> {
+    const query = db<MaintenanceWindowRow>('maintenance_windows').orderBy('created_at', 'desc');
+    if (tenantId !== null) query.where({ tenant_id: tenantId });
     if (filters?.scopeType) {
       query.where({ scope_type: filters.scopeType });
       // For 'global', scope_id is NULL — do not add a scopeId filter

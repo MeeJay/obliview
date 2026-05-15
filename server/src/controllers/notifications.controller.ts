@@ -9,6 +9,7 @@ import type {
   AddBindingInput,
   RemoveBindingInput,
 } from '../validators/notification.schema';
+import { getEffectiveTenantScope } from '../utils/tenantScope';
 
 export const notificationsController = {
   // GET /api/notifications/plugins — list available plugin types
@@ -24,7 +25,7 @@ export const notificationsController = {
   // GET /api/notifications/channels
   async listChannels(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const channels = await notificationService.getAllChannels(req.tenantId);
+      const channels = await notificationService.getAllChannels(getEffectiveTenantScope(req));
       res.json({ success: true, data: channels });
     } catch (err) {
       next(err);

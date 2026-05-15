@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { maintenanceService, isWindowActive } from '../services/maintenance.service';
 import type { CreateMaintenanceWindowRequest, UpdateMaintenanceWindowRequest, MaintenanceScopeType } from '@obliview/shared';
 import { db } from '../db';
+import { getEffectiveTenantScope } from '../utils/tenantScope';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ export const maintenanceController = {
       if (typeof scopeType === 'string') filters.scopeType = scopeType;
       if (typeof scopeId === 'string') filters.scopeId = Number(scopeId);
 
-      const windows = await maintenanceService.list(req.tenantId, filters);
+      const windows = await maintenanceService.list(getEffectiveTenantScope(req), filters);
       const enriched = await Promise.all(windows.map(enrichWindow));
       return res.json({ success: true, data: enriched });
     } catch (err) {

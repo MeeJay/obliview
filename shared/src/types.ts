@@ -923,11 +923,13 @@ export interface TenantWithRole extends Tenant {
   role: 'admin' | 'member';
 }
 
-/** Returned by GET /api/users/:id/tenants — all tenants with this user's membership info */
+/** Returned by GET /api/users/:id/tenants — all tenants with this user's membership info.
+ *  `role` is a permission_set slug (e.g. 'admin', 'user', 'viewer', or a custom slug).
+ *  'admin' is special: it short-circuits the capability matrix on the server. */
 export interface UserTenantAssignment {
   tenantId: number;
   tenantName: string;
   tenantSlug: string;
   isMember: boolean;
-  role: 'admin' | 'member';
+  role: string;
 }

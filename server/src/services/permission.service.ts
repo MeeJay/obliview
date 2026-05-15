@@ -370,4 +370,92 @@ export const permissionService = {
     if (a === 'ro' || b === 'ro') return 'ro';
     return null;
   },
+
+  // ── Tenant-wide capabilities (permission_sets) ─────────────────────────────
+  //
+  // user_tenants.role carries a permission_set slug (e.g. 'admin', 'user',
+  // 'viewer', or a custom slug). The set's `capabilities` JSONB array decides
+  // which tenant-wide gates the user passes (settings, users.manage,
+  // agents.manage…). Tenant role 'admin' short-circuits the check.
+
+  async userHasTenantCapability(
+    userId: number,
+    tenantId: number,
+    capability: string,
+  ): Promise<boolean> {
+    const ut = await db('user_tenants')
+      .where({ user_id: userId, tenant_id: tenantId })
+      .first() as { role: string } | undefined;
+    if (!ut) return false;
+    if (ut.role === 'admin') return true;
+
+    const set = await db('permission_sets')
+      .where({ slug: ut.role })
+      .first() as { capabilities: string | string[] } | undefined;
+    if (!set) return false;
+
+    const caps = typeof set.capabilities === 'string'
+      ? JSON.parse(set.capabilities) as string[]
+      : set.capabilities;
+    return caps.includes(capability);
+  },
+
+  /**
+   * Combined check: user belongs to a team that has the requested capability
+   * on the monitor's scope (direct or inherited via group closure), AND has
+   * at least read access to the monitor.
+   *
+   * Used when a per-device action needs both reach (team scope) and a fine
+   * capability flag (team_permissions.capabilities JSONB).
+   */
+  async canUseCapability(
+    userId: number,
+    monitorId: number,
+    isAdmin: boolean,
+    capability: string,
+  ): Promise<boolean> {
+    if (isAdmin) return true;
+
+    const monitorRow = await db('monitors').where({ id: monitorId }).select('group_id').first();
+    if (!monitorRow) return false;
+
+    // Direct monitor scope
+    const directRows = await db('team_permissions')
+      .join('team_memberships', 'team_permissions.team_id', 'team_memberships.team_id')
+      .where('team_memberships.user_id', userId)
+      .where('team_permissions.scope', 'monitor')
+      .where('team_permissions.scope_id', monitorId)
+      .select('team_permissions.capabilities') as Array<{ capabilities: string | string[] | null }>;
+
+    if (this._anyCapabilityMatch(directRows, capability)) return true;
+
+    // Group scope (inherited via closure table)
+    if (monitorRow.group_id) {
+      const groupRows = await db('team_permissions')
+        .join('team_memberships', 'team_permissions.team_id', 'team_memberships.team_id')
+        .join('group_closure', 'group_closure.ancestor_id', 'team_permissions.scope_id')
+        .where('team_memberships.user_id', userId)
+        .where('team_permissions.scope', 'group')
+        .where('group_closure.descendant_id', monitorRow.group_id)
+        .select('team_permissions.capabilities') as Array<{ capabilities: string | string[] | null }>;
+
+      if (this._anyCapabilityMatch(groupRows, capability)) return true;
+    }
+
+    return false;
+  },
+
+  _anyCapabilityMatch(
+    rows: Array<{ capabilities: string | string[] | null }>,
+    capability: string,
+  ): boolean {
+    for (const r of rows) {
+      if (r.capabilities == null) continue;
+      const caps = typeof r.capabilities === 'string'
+        ? JSON.parse(r.capabilities) as string[]
+        : r.capabilities;
+      if (Array.isArray(caps) && caps.includes(capability)) return true;
+    }
+    return false;
+  },
 };
