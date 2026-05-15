@@ -10,11 +10,13 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core';
+import { Building2, ChevronRight } from 'lucide-react';
 import { useGroupStore } from '@/store/groupStore';
 import { useMonitorStore } from '@/store/monitorStore';
 import { useAuthStore } from '@/store/authStore';
 import { useTenantStore } from '@/store/tenantStore';
-import { isMasterTenant } from '@obliview/shared';
+import { useTenantCollapse } from '@/hooks/useTenantCollapse';
+import { isMasterTenant, MASTER_TENANT_ID } from '@obliview/shared';
 import { GroupNode } from './GroupNode';
 import { MonitorStatusBadge } from '@/components/monitors/MonitorStatusBadge';
 import { cn } from '@/utils/cn';
@@ -42,6 +44,7 @@ export function GroupTree({ selectedGroupId, onSelectGroup, searchQuery = '' }: 
 
   const isGodView = currentUser?.role === 'admin' && isMasterTenant(currentTenantId);
   const tenantNameById = new Map(storeTenants.map((tn) => [tn.id, tn.name]));
+  const { isCollapsed: tenantCollapsed, toggle: toggleTenant } = useTenantCollapse();
 
   const canMove = canCreateCheck();
 
@@ -128,8 +131,7 @@ export function GroupTree({ selectedGroupId, onSelectGroup, searchQuery = '' }: 
     ? ungroupedMonitors.filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : ungroupedMonitors;
 
-  // God View: group root nodes by tenant so multi-tenant content stays readable.
-  // Other modes keep the flat ordering returned by the API.
+  // God View: bucket root nodes by tenant. Master tenant first, then alpha.
   const groupedRoots: Array<{ tenantId: number | null; nodes: typeof visibleMonitorTree }> = isGodView
     ? (() => {
         const byTenant = new Map<number, typeof visibleMonitorTree>();
@@ -138,7 +140,6 @@ export function GroupTree({ selectedGroupId, onSelectGroup, searchQuery = '' }: 
           if (!byTenant.has(tid)) byTenant.set(tid, []);
           byTenant.get(tid)!.push(n);
         }
-        // Master tenant first, then alphabetically by name
         const entries = Array.from(byTenant.entries()).sort(([a], [b]) => {
           if (isMasterTenant(a)) return -1;
           if (isMasterTenant(b)) return 1;
@@ -151,31 +152,43 @@ export function GroupTree({ selectedGroupId, onSelectGroup, searchQuery = '' }: 
   const content = (
     <div className="space-y-0.5">
       {/* Group tree (monitor groups only) — bucketed per tenant in God View */}
-      {groupedRoots.map((bucket) => (
-        <div key={bucket.tenantId ?? 'flat'} className="space-y-0.5">
-          {isGodView && bucket.tenantId !== null && (
-            <div className="flex items-center gap-1.5 px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-              <span
-                className={
-                  'inline-block w-1.5 h-1.5 rounded-full ' +
-                  (isMasterTenant(bucket.tenantId) ? 'bg-accent' : 'bg-text-muted/50')
-                }
+      {groupedRoots.map((bucket) => {
+        const collapsed = bucket.tenantId !== null && tenantCollapsed(bucket.tenantId);
+        return (
+          <div key={bucket.tenantId ?? 'flat'} className="space-y-0.5">
+            {isGodView && bucket.tenantId !== null && (
+              <button
+                type="button"
+                onClick={() => toggleTenant(bucket.tenantId!)}
+                title={collapsed ? `Expand ${tenantNameById.get(bucket.tenantId) ?? ''}` : `Collapse ${tenantNameById.get(bucket.tenantId) ?? ''}`}
+                className="mt-2 w-full flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-[0.14em] text-accent hover:bg-accent/5 transition-colors"
+              >
+                <ChevronRight
+                  size={11}
+                  className={cn('shrink-0 transition-transform duration-150', !collapsed && 'rotate-90')}
+                />
+                <Building2 size={11} className="shrink-0" />
+                <span className="truncate flex-1 text-left">
+                  {tenantNameById.get(bucket.tenantId) ?? `Tenant ${bucket.tenantId}`}
+                  {bucket.tenantId === MASTER_TENANT_ID && (
+                    <span className="ml-1 text-text-muted font-normal normal-case tracking-normal">(master)</span>
+                  )}
+                </span>
+              </button>
+            )}
+            {!collapsed && bucket.nodes.map((node) => (
+              <GroupNode
+                key={node.id}
+                node={node}
+                selectedGroupId={selectedGroupId}
+                onSelectGroup={onSelectGroup}
+                dndEnabled={canMove}
+                searchQuery={searchQuery}
               />
-              {tenantNameById.get(bucket.tenantId) ?? `Tenant ${bucket.tenantId}`}
-            </div>
-          )}
-          {bucket.nodes.map((node) => (
-            <GroupNode
-              key={node.id}
-              node={node}
-              selectedGroupId={selectedGroupId}
-              onSelectGroup={onSelectGroup}
-              dndEnabled={canMove}
-              searchQuery={searchQuery}
-            />
-          ))}
-        </div>
-      ))}
+            ))}
+          </div>
+        );
+      })}
 
       {/* Ungrouped monitors */}
       {filteredUngrouped.length > 0 && (

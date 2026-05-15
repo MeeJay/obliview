@@ -1,6 +1,6 @@
 {
   "name": "@obliview/client",
-  "version": "2.2.81",
+  "version": "2.2.82",
   "private": true,
   "type": "module",
   "scripts": {

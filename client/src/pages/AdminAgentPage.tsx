@@ -18,9 +18,11 @@ import {
   PowerOff,
   X,
   Settings2,
+  Building2,
+  ChevronRight,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { SOCKET_EVENTS, isMasterTenant } from '@obliview/shared';
+import { SOCKET_EVENTS, isMasterTenant, MASTER_TENANT_ID } from '@obliview/shared';
 import type { AgentApiKey, AgentDevice, MonitorGroup } from '@obliview/shared';
 import { anonymize, anonymizeIp } from '@/utils/anonymize';
 import { agentApi } from '@/api/agent.api';
@@ -32,6 +34,8 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { useUiStore } from '@/store/uiStore';
 import { useAuthStore } from '@/store/authStore';
 import { useTenantStore } from '@/store/tenantStore';
+import { useTenantCollapse } from '@/hooks/useTenantCollapse';
+import { cn } from '@/utils/cn';
 import toast from 'react-hot-toast';
 
 type Tab = 'keys' | 'devices';
@@ -491,6 +495,7 @@ export function AdminAgentPage() {
   const { tenants: storeTenants, currentTenantId } = useTenantStore();
   const isGodView = currentUser?.role === 'admin' && isMasterTenant(currentTenantId);
   const tenantNameById = new Map(storeTenants.map((tn) => [tn.id, tn.name]));
+  const { isCollapsed: tenantCollapsed, toggle: toggleTenantCollapsed } = useTenantCollapse();
 
   const { openAddAgentModal } = useUiStore();
   const [showCreateKey, setShowCreateKey] = useState(false);
@@ -936,9 +941,6 @@ export function AdminAgentPage() {
                       />
                     </th>
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-text-muted uppercase tracking-wide">Hostname</th>
-                    {isGodView && (
-                      <th className="px-4 py-2.5 text-left text-xs font-medium text-accent uppercase tracking-wide">Tenant</th>
-                    )}
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-text-muted uppercase tracking-wide">IP</th>
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-text-muted uppercase tracking-wide">OS</th>
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-text-muted uppercase tracking-wide">{t('common.agent')}</th>
@@ -948,134 +950,172 @@ export function AdminAgentPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filteredDevices.map(device => (
-                    <tr
-                      key={device.id}
-                      className={`hover:bg-bg-hover transition-colors ${selectedIds.has(device.id) ? 'bg-accent/5' : ''}`}
-                    >
-                      {/* Checkbox */}
-                      <td className="px-3 py-3">
-                        <Checkbox
-                          checked={selectedIds.has(device.id)}
-                          onCheckedChange={() => toggleSelect(device.id)}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        {device.status === 'approved' ? (
-                          <Link
-                            to={`/agents/${device.id}`}
-                            className="font-medium text-text-primary hover:text-accent transition-colors"
-                          >
-                            {anonymize(device.name ?? device.hostname)}
-                          </Link>
-                        ) : (
-                          <span className="font-medium text-text-primary">{anonymize(device.name ?? device.hostname)}</span>
-                        )}
-                        {device.deviceType === 'proxy' && (
-                          <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-blue-500/15 text-blue-400">Proxy</span>
-                        )}
-                        {device.name && (
-                          <div className="text-[10px] text-text-muted mt-0.5">{anonymize(device.hostname)}</div>
-                        )}
-                        <div className="text-[10px] text-text-muted font-mono mt-0.5">{device.uuid.slice(0, 12)}…</div>
-                      </td>
-                      {isGodView && (
-                        <td className="px-4 py-3">
-                          <span
-                            className={
-                              'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ' +
-                              (isMasterTenant(device.tenantId)
-                                ? 'bg-accent/15 text-accent'
-                                : 'bg-bg-tertiary text-text-muted')
-                            }
-                          >
-                            {tenantNameById.get(device.tenantId) ?? `Tenant ${device.tenantId}`}
-                          </span>
+                  {(() => {
+                    const renderDeviceRow = (device: AgentDevice) => (
+                      <tr
+                        key={device.id}
+                        className={`hover:bg-bg-hover transition-colors ${selectedIds.has(device.id) ? 'bg-accent/5' : ''}`}
+                      >
+                        <td className="px-3 py-3">
+                          <Checkbox
+                            checked={selectedIds.has(device.id)}
+                            onCheckedChange={() => toggleSelect(device.id)}
+                          />
                         </td>
-                      )}
-                      <td className="px-4 py-3 text-text-muted">{anonymizeIp(device.ip) ?? '—'}</td>
-                      <td className="px-4 py-3 text-text-muted">
-                        {device.osInfo
-                          ? `${device.osInfo.distro ?? device.osInfo.platform} ${device.osInfo.release ?? ''}`
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-text-muted">{device.agentVersion ?? '—'}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <StatusBadge status={device.status} />
-                          {(liveAgentStatus.get(device.id) === 'updating' ||
-                            (device.updatingSince != null &&
-                              Date.now() - new Date(device.updatingSince).getTime() < 10 * 60 * 1000)) && (
-                            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-blue-500/10 text-blue-400">
-                              <RefreshCw size={10} className="animate-spin" />
-                              Updating
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-text-muted text-xs">{formatDate(device.createdAt)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {device.status === 'pending' && (
-                            <>
-                              <Button size="sm" onClick={() => setApprovingDevice(device)}>
-                                <CheckCircle size={12} className="mr-1" />{t('agents.approve')}
-                              </Button>
-                              <Button size="sm" variant="danger" onClick={() => handleRefuse(device)}>
-                                Refuse
-                              </Button>
-                            </>
-                          )}
-                          {device.status === 'approved' && (
+                        <td className="px-4 py-3">
+                          {device.status === 'approved' ? (
                             <Link
                               to={`/agents/${device.id}`}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
-                              title="View detail"
+                              className="font-medium text-text-primary hover:text-accent transition-colors"
                             >
-                              <ExternalLink size={12} />
-                              View
+                              {anonymize(device.name ?? device.hostname)}
                             </Link>
+                          ) : (
+                            <span className="font-medium text-text-primary">{anonymize(device.name ?? device.hostname)}</span>
                           )}
-                          {device.status === 'refused' && (
-                            <Button size="sm" variant="secondary" onClick={() => handleReinstate(device)}>
-                              Reinstate
-                            </Button>
+                          {device.deviceType === 'proxy' && (
+                            <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-blue-500/15 text-blue-400">Proxy</span>
                           )}
-                          {device.status === 'suspended' && (
-                            <Button size="sm" variant="secondary" onClick={() => agentApi.updateDevice(device.id, { status: 'approved' }).then(loadAll)}>
-                              Reinstate
-                            </Button>
+                          {device.name && (
+                            <div className="text-[10px] text-text-muted mt-0.5">{anonymize(device.hostname)}</div>
                           )}
-                          {(device.status === 'approved' || device.status === 'suspended') && (
+                          <div className="text-[10px] text-text-muted font-mono mt-0.5">{device.uuid.slice(0, 12)}…</div>
+                        </td>
+                        <td className="px-4 py-3 text-text-muted">{anonymizeIp(device.ip) ?? '—'}</td>
+                        <td className="px-4 py-3 text-text-muted">
+                          {device.osInfo
+                            ? `${device.osInfo.distro ?? device.osInfo.platform} ${device.osInfo.release ?? ''}`
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-text-muted">{device.agentVersion ?? '—'}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <StatusBadge status={device.status} />
+                            {(liveAgentStatus.get(device.id) === 'updating' ||
+                              (device.updatingSince != null &&
+                                Date.now() - new Date(device.updatingSince).getTime() < 10 * 60 * 1000)) && (
+                              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-blue-500/10 text-blue-400">
+                                <RefreshCw size={10} className="animate-spin" />
+                                Updating
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-text-muted text-xs">{formatDate(device.createdAt)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {device.status === 'pending' && (
+                              <>
+                                <Button size="sm" onClick={() => setApprovingDevice(device)}>
+                                  <CheckCircle size={12} className="mr-1" />{t('agents.approve')}
+                                </Button>
+                                <Button size="sm" variant="danger" onClick={() => handleRefuse(device)}>
+                                  Refuse
+                                </Button>
+                              </>
+                            )}
+                            {device.status === 'approved' && (
+                              <Link
+                                to={`/agents/${device.id}`}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+                                title="View detail"
+                              >
+                                <ExternalLink size={12} />
+                                View
+                              </Link>
+                            )}
+                            {device.status === 'refused' && (
+                              <Button size="sm" variant="secondary" onClick={() => handleReinstate(device)}>
+                                Reinstate
+                              </Button>
+                            )}
+                            {device.status === 'suspended' && (
+                              <Button size="sm" variant="secondary" onClick={() => agentApi.updateDevice(device.id, { status: 'approved' }).then(loadAll)}>
+                                Reinstate
+                              </Button>
+                            )}
+                            {(device.status === 'approved' || device.status === 'suspended') && (
+                              <button
+                                onClick={() => setEditingDevice(device)}
+                                className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+                                title="Edit"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                            )}
+                            {device.status === 'approved' && (
+                              <button
+                                onClick={() => handleUninstallDevice(device)}
+                                className="p-1.5 rounded text-text-muted hover:text-orange-400 hover:bg-orange-400/10 transition-colors"
+                                title="Uninstall agent"
+                              >
+                                <PowerOff size={13} />
+                              </button>
+                            )}
                             <button
-                              onClick={() => setEditingDevice(device)}
-                              className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
-                              title="Edit"
+                              onClick={() => handleDeleteDevice(device)}
+                              className="p-1.5 rounded text-text-muted hover:text-status-down hover:bg-status-down/10 transition-colors"
+                              title="Delete"
                             >
-                              <Pencil size={13} />
+                              <Trash2 size={13} />
                             </button>
-                          )}
-                          {/* Uninstall — approved devices only */}
-                          {device.status === 'approved' && (
+                          </div>
+                        </td>
+                      </tr>
+                    );
+
+                    // Flat path: no God View → existing behaviour.
+                    if (!isGodView) {
+                      return filteredDevices.map(renderDeviceRow);
+                    }
+
+                    // God View: bucket by tenant, master first then alpha, with
+                    // a collapsible full-width header per tenant.
+                    const byTenant = new Map<number, AgentDevice[]>();
+                    for (const d of filteredDevices) {
+                      if (!byTenant.has(d.tenantId)) byTenant.set(d.tenantId, []);
+                      byTenant.get(d.tenantId)!.push(d);
+                    }
+                    const ordered = Array.from(byTenant.entries()).sort(([a], [b]) => {
+                      if (isMasterTenant(a)) return -1;
+                      if (isMasterTenant(b)) return 1;
+                      return (tenantNameById.get(a) ?? '').localeCompare(tenantNameById.get(b) ?? '');
+                    });
+                    const rows: React.ReactNode[] = [];
+                    for (const [tid, devs] of ordered) {
+                      const collapsed = tenantCollapsed(tid);
+                      const tenantName = tenantNameById.get(tid) ?? `Tenant ${tid}`;
+                      rows.push(
+                        <tr key={`hdr-${tid}`} className="bg-accent/5 border-y border-accent/20">
+                          <td colSpan={8} className="px-3 py-0">
                             <button
-                              onClick={() => handleUninstallDevice(device)}
-                              className="p-1.5 rounded text-text-muted hover:text-orange-400 hover:bg-orange-400/10 transition-colors"
-                              title="Uninstall agent"
+                              type="button"
+                              onClick={() => toggleTenantCollapsed(tid)}
+                              className="w-full flex items-center gap-2 text-left py-2 hover:bg-accent/10 transition-colors rounded"
+                              title={collapsed ? `Expand ${tenantName}` : `Collapse ${tenantName}`}
                             >
-                              <PowerOff size={13} />
+                              <ChevronRight
+                                size={14}
+                                className={cn('shrink-0 text-accent transition-transform duration-150', !collapsed && 'rotate-90')}
+                              />
+                              <Building2 size={14} className="shrink-0 text-accent" />
+                              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-accent flex-1">
+                                {tenantName}
+                                {tid === MASTER_TENANT_ID && (
+                                  <span className="ml-1 text-text-muted font-normal normal-case tracking-normal">(master)</span>
+                                )}
+                              </span>
+                              <span className="text-[10px] text-text-muted">{devs.length} device{devs.length !== 1 ? 's' : ''}</span>
                             </button>
-                          )}
-                          <button
-                            onClick={() => handleDeleteDevice(device)}
-                            className="p-1.5 rounded text-text-muted hover:text-status-down hover:bg-status-down/10 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          </td>
+                        </tr>,
+                      );
+                      if (!collapsed) {
+                        for (const d of devs) rows.push(renderDeviceRow(d));
+                      }
+                    }
+                    return rows;
+                  })()}
                 </tbody>
               </table>
             )}
@@ -1116,53 +1156,86 @@ export function AdminAgentPage() {
           )}
 
           {/* Keys list */}
-          <div className="rounded-lg border border-border bg-bg-secondary divide-y divide-border">
+          <div className="rounded-lg border border-border bg-bg-secondary divide-y divide-border overflow-hidden">
             {keys.length === 0 ? (
               <div className="py-10 text-center">
                 <Key size={28} className="mx-auto mb-2 text-text-muted" />
                 <p className="text-sm text-text-muted">No API keys yet</p>
               </div>
             ) : (
-              keys.map(key => (
-                <div key={key.id} className="flex items-center gap-3 px-4 py-3 group">
-                  <Key size={14} className="shrink-0 text-accent" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-text-primary text-sm">{key.name}</span>
-                      {isGodView && (
-                        <span
-                          className={
-                            'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ' +
-                            (isMasterTenant(key.tenantId)
-                              ? 'bg-accent/15 text-accent'
-                              : 'bg-bg-tertiary text-text-muted')
-                          }
-                        >
-                          {tenantNameById.get(key.tenantId) ?? `Tenant ${key.tenantId}`}
-                        </span>
-                      )}
+              (() => {
+                const renderKeyRow = (key: AgentApiKey) => (
+                  <div key={key.id} className="flex items-center gap-3 px-4 py-3 group">
+                    <Key size={14} className="shrink-0 text-accent" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-text-primary text-sm">{key.name}</div>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <span className="text-xs font-mono text-text-muted">{truncateKey(key.key)}</span>
+                        <CopyButton text={key.key} />
+                        {key.deviceCount !== undefined && (
+                          <span className="text-xs text-text-muted">{key.deviceCount} device{key.deviceCount !== 1 ? 's' : ''}</span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      <span className="text-xs font-mono text-text-muted">{truncateKey(key.key)}</span>
-                      <CopyButton text={key.key} />
-                      {key.deviceCount !== undefined && (
-                        <span className="text-xs text-text-muted">{key.deviceCount} device{key.deviceCount !== 1 ? 's' : ''}</span>
-                      )}
+                    <div className="text-xs text-text-muted shrink-0 text-right">
+                      <div>Created {formatDate(key.createdAt)}</div>
+                      {key.lastUsedAt && <div>Last used {formatDate(key.lastUsedAt)}</div>}
                     </div>
+                    <button
+                      onClick={() => handleDeleteKey(key)}
+                      className="shrink-0 p-1.5 rounded text-text-muted hover:text-status-down hover:bg-status-down/10 transition-colors opacity-0 group-hover:opacity-100"
+                      title="Delete"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
-                  <div className="text-xs text-text-muted shrink-0 text-right">
-                    <div>Created {formatDate(key.createdAt)}</div>
-                    {key.lastUsedAt && <div>Last used {formatDate(key.lastUsedAt)}</div>}
-                  </div>
-                  <button
-                    onClick={() => handleDeleteKey(key)}
-                    className="shrink-0 p-1.5 rounded text-text-muted hover:text-status-down hover:bg-status-down/10 transition-colors opacity-0 group-hover:opacity-100"
-                    title="Delete"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))
+                );
+
+                if (!isGodView) {
+                  return keys.map(renderKeyRow);
+                }
+                const byTenant = new Map<number, AgentApiKey[]>();
+                for (const k of keys) {
+                  if (!byTenant.has(k.tenantId)) byTenant.set(k.tenantId, []);
+                  byTenant.get(k.tenantId)!.push(k);
+                }
+                const ordered = Array.from(byTenant.entries()).sort(([a], [b]) => {
+                  if (isMasterTenant(a)) return -1;
+                  if (isMasterTenant(b)) return 1;
+                  return (tenantNameById.get(a) ?? '').localeCompare(tenantNameById.get(b) ?? '');
+                });
+                const nodes: React.ReactNode[] = [];
+                for (const [tid, ks] of ordered) {
+                  const collapsed = tenantCollapsed(tid);
+                  const tenantName = tenantNameById.get(tid) ?? `Tenant ${tid}`;
+                  nodes.push(
+                    <button
+                      key={`hdr-${tid}`}
+                      type="button"
+                      onClick={() => toggleTenantCollapsed(tid)}
+                      className="w-full flex items-center gap-2 px-4 py-2 bg-accent/5 border-y border-accent/20 hover:bg-accent/10 transition-colors"
+                      title={collapsed ? `Expand ${tenantName}` : `Collapse ${tenantName}`}
+                    >
+                      <ChevronRight
+                        size={14}
+                        className={cn('shrink-0 text-accent transition-transform duration-150', !collapsed && 'rotate-90')}
+                      />
+                      <Building2 size={14} className="shrink-0 text-accent" />
+                      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-accent flex-1 text-left">
+                        {tenantName}
+                        {tid === MASTER_TENANT_ID && (
+                          <span className="ml-1 text-text-muted font-normal normal-case tracking-normal">(master)</span>
+                        )}
+                      </span>
+                      <span className="text-[10px] text-text-muted">{ks.length} key{ks.length !== 1 ? 's' : ''}</span>
+                    </button>,
+                  );
+                  if (!collapsed) {
+                    for (const k of ks) nodes.push(renderKeyRow(k));
+                  }
+                }
+                return nodes;
+              })()
             )}
           </div>
         </>

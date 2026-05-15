@@ -23,6 +23,7 @@ import {
   PackageOpen,
   ShieldCheck,
   ChevronDown,
+  ChevronRight,
   CalendarClock,
   Building2,
   ChevronsLeft,
@@ -44,7 +45,8 @@ import { UserAvatar } from '@/components/common/UserAvatar';
 import { agentApi } from '@/api/agent.api';
 import { getSocket } from '@/socket/socketClient';
 import type { AgentDevice, MonitorStatus } from '@obliview/shared';
-import { SOCKET_EVENTS } from '@obliview/shared';
+import { SOCKET_EVENTS, isMasterTenant, MASTER_TENANT_ID } from '@obliview/shared';
+import { useTenantCollapse } from '@/hooks/useTenantCollapse';
 import toast from 'react-hot-toast';
 
 // ── localStorage helpers ─────────────────────────────────────────────────────
@@ -202,7 +204,8 @@ export function Sidebar() {
   } = useUiStore();
   const { fetchMonitors, monitors } = useMonitorStore();
   const { tree } = useGroupStore();
-  const { currentTenantId } = useTenantStore();
+  const { currentTenantId, tenants: storeTenants } = useTenantStore();
+  const { isCollapsed: tenantCollapsed, toggle: toggleTenantCollapsed } = useTenantCollapse();
 
   const [approvedDevices, setApprovedDevices] = useState<AgentDevice[]>([]);
   const [deviceStatuses, setDeviceStatuses] = useState<Map<number, string>>(new Map());
@@ -218,6 +221,8 @@ export function Sidebar() {
 
   const agentGroups = tree.filter(n => n.kind === 'agent');
   const admin = isAdmin();
+  const isGodView = user?.role === 'admin' && isMasterTenant(currentTenantId);
+  const tenantNameById = new Map(storeTenants.map((tn) => [tn.id, tn.name]));
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -342,61 +347,127 @@ export function Sidebar() {
     document.body.style.userSelect = 'none';
   }, [setSplitPercent]);
 
-  const renderAgentContent = (hideHeader = false) => !admin ? null : (
-    <DndContext sensors={sensors} onDragEnd={handleAgentDragEnd}>
-      <div className={hideHeader ? '' : 'mt-3'}>
-        {!hideHeader && (
-          <div className="px-3.5 pb-1.5 pt-3.5 text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
-            {t('groups.agentGroup')}
-          </div>
-        )}
+  const renderAgentContent = (hideHeader = false) => {
+    if (!admin) return null;
 
-        {agentGroups.map(group => {
-          const isGroupActive = location.pathname === `/group/${group.id}`;
-          const groupDevices = approvedDevices.filter(d => d.groupId === group.id);
-          return (
-            <DroppableGroupHeader key={group.id} groupId={group.id}>
-              <Link
-                to={`/group/${group.id}`}
-                className={cn(
-                  'flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors',
-                  isGroupActive
-                    ? 'bg-accent/10 text-accent-hover'
-                    : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
-                )}
-              >
-                <Server size={14} className="shrink-0 text-text-muted" />
-                <span className="truncate flex-1">{anonymize(group.name)}</span>
-                {groupDevices.length > 0 && (
-                  <span className="font-mono text-[10px] text-text-muted">{groupDevices.length}</span>
-                )}
-              </Link>
-              {groupDevices.map(device => (
+    // Render the groups + their devices, optionally restricted to a single tenant.
+    const renderGroups = (tenantId: number | null) => {
+      const filteredGroups = tenantId === null
+        ? agentGroups
+        : agentGroups.filter(g => g.tenantId === tenantId);
+      const filteredUngrouped = approvedDevices.filter(d => {
+        if (d.groupId !== null) return false;
+        if (tenantId === null) return true;
+        return d.tenantId === tenantId;
+      });
+
+      return (
+        <>
+          {filteredGroups.map(group => {
+            const isGroupActive = location.pathname === `/group/${group.id}`;
+            const groupDevices = approvedDevices.filter(d => d.groupId === group.id);
+            return (
+              <DroppableGroupHeader key={group.id} groupId={group.id}>
+                <Link
+                  to={`/group/${group.id}`}
+                  className={cn(
+                    'flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors',
+                    isGroupActive
+                      ? 'bg-accent/10 text-accent-hover'
+                      : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                  )}
+                >
+                  <Server size={14} className="shrink-0 text-text-muted" />
+                  <span className="truncate flex-1">{anonymize(group.name)}</span>
+                  {groupDevices.length > 0 && (
+                    <span className="font-mono text-[10px] text-text-muted">{groupDevices.length}</span>
+                  )}
+                </Link>
+                {groupDevices.map(device => (
+                  <DraggableDeviceItem
+                    key={device.id}
+                    device={device}
+                    monitorStatus={getMonitorStatus(device.id)}
+                    indent
+                  />
+                ))}
+              </DroppableGroupHeader>
+            );
+          })}
+
+          {filteredUngrouped.length > 0 && (
+            <DroppableGroupHeader groupId={null}>
+              {filteredUngrouped.map(device => (
                 <DraggableDeviceItem
                   key={device.id}
                   device={device}
                   monitorStatus={getMonitorStatus(device.id)}
-                  indent
                 />
               ))}
             </DroppableGroupHeader>
-          );
-        })}
+          )}
+        </>
+      );
+    };
 
-        {approvedDevices.filter(d => d.groupId === null).length > 0 && (
-          <DroppableGroupHeader groupId={null}>
-            {approvedDevices.filter(d => d.groupId === null).map(device => (
-              <DraggableDeviceItem
-                key={device.id}
-                device={device}
-                monitorStatus={getMonitorStatus(device.id)}
-              />
-            ))}
-          </DroppableGroupHeader>
-        )}
-      </div>
-    </DndContext>
-  );
+    // God View: bucket groups + ungrouped devices per tenant. Master first.
+    const tenantIds = isGodView
+      ? (() => {
+          const ids = new Set<number>();
+          for (const g of agentGroups) ids.add(g.tenantId);
+          for (const d of approvedDevices) ids.add(d.tenantId);
+          return Array.from(ids).sort((a, b) => {
+            if (isMasterTenant(a)) return -1;
+            if (isMasterTenant(b)) return 1;
+            return (tenantNameById.get(a) ?? '').localeCompare(tenantNameById.get(b) ?? '');
+          });
+        })()
+      : [];
+
+    return (
+      <DndContext sensors={sensors} onDragEnd={handleAgentDragEnd}>
+        <div className={hideHeader ? '' : 'mt-3'}>
+          {!hideHeader && (
+            <div className="px-3.5 pb-1.5 pt-3.5 text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
+              {t('groups.agentGroup')}
+            </div>
+          )}
+
+          {isGodView ? (
+            tenantIds.map(tid => {
+              const collapsed = tenantCollapsed(tid);
+              const tenantName = tenantNameById.get(tid) ?? `Tenant ${tid}`;
+              return (
+                <div key={tid} className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleTenantCollapsed(tid)}
+                    title={collapsed ? `Expand ${tenantName}` : `Collapse ${tenantName}`}
+                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-[0.14em] text-accent hover:bg-accent/5 transition-colors"
+                  >
+                    <ChevronRight
+                      size={11}
+                      className={cn('shrink-0 transition-transform duration-150', !collapsed && 'rotate-90')}
+                    />
+                    <Building2 size={11} className="shrink-0" />
+                    <span className="truncate flex-1 text-left">
+                      {tenantName}
+                      {tid === MASTER_TENANT_ID && (
+                        <span className="ml-1 text-text-muted font-normal normal-case tracking-normal">(master)</span>
+                      )}
+                    </span>
+                  </button>
+                  {!collapsed && renderGroups(tid)}
+                </div>
+              );
+            })
+          ) : (
+            renderGroups(null)
+          )}
+        </div>
+      </DndContext>
+    );
+  };
 
   // ── Collapsed (icon-only, 64 px) render ────────────────────────────────────
 
