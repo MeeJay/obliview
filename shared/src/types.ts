@@ -196,6 +196,7 @@ export interface MonitorGroup {
   isGeneral: boolean;
   groupNotifications: boolean;
   kind: 'monitor' | 'agent';
+  tenantId: number;
   agentThresholds?: AgentThresholds | null;
   agentGroupConfig?: AgentGroupConfig | null;
   createdAt: string;

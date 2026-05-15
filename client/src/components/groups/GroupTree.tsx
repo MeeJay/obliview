@@ -13,6 +13,8 @@ import {
 import { useGroupStore } from '@/store/groupStore';
 import { useMonitorStore } from '@/store/monitorStore';
 import { useAuthStore } from '@/store/authStore';
+import { useTenantStore } from '@/store/tenantStore';
+import { isMasterTenant } from '@obliview/shared';
 import { GroupNode } from './GroupNode';
 import { MonitorStatusBadge } from '@/components/monitors/MonitorStatusBadge';
 import { cn } from '@/utils/cn';
@@ -33,9 +35,13 @@ export function GroupTree({ selectedGroupId, onSelectGroup, searchQuery = '' }: 
   const { t } = useTranslation();
   const { tree, fetchTree, fetchGroupStats } = useGroupStore();
   const { getMonitorsByGroup, fetchSummary, fetchAllHeartbeats, getMonitorSummary, updateMonitor } = useMonitorStore();
-  const { canCreate: canCreateCheck } = useAuthStore();
+  const { canCreate: canCreateCheck, user: currentUser } = useAuthStore();
+  const { tenants: storeTenants, currentTenantId } = useTenantStore();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const isGodView = currentUser?.role === 'admin' && isMasterTenant(currentTenantId);
+  const tenantNameById = new Map(storeTenants.map((tn) => [tn.id, tn.name]));
 
   const canMove = canCreateCheck();
 
@@ -122,18 +128,53 @@ export function GroupTree({ selectedGroupId, onSelectGroup, searchQuery = '' }: 
     ? ungroupedMonitors.filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : ungroupedMonitors;
 
+  // God View: group root nodes by tenant so multi-tenant content stays readable.
+  // Other modes keep the flat ordering returned by the API.
+  const groupedRoots: Array<{ tenantId: number | null; nodes: typeof visibleMonitorTree }> = isGodView
+    ? (() => {
+        const byTenant = new Map<number, typeof visibleMonitorTree>();
+        for (const n of visibleMonitorTree) {
+          const tid = n.tenantId;
+          if (!byTenant.has(tid)) byTenant.set(tid, []);
+          byTenant.get(tid)!.push(n);
+        }
+        // Master tenant first, then alphabetically by name
+        const entries = Array.from(byTenant.entries()).sort(([a], [b]) => {
+          if (isMasterTenant(a)) return -1;
+          if (isMasterTenant(b)) return 1;
+          return (tenantNameById.get(a) ?? '').localeCompare(tenantNameById.get(b) ?? '');
+        });
+        return entries.map(([tid, nodes]) => ({ tenantId: tid, nodes }));
+      })()
+    : [{ tenantId: null, nodes: visibleMonitorTree }];
+
   const content = (
     <div className="space-y-0.5">
-      {/* Group tree (monitor groups only) */}
-      {visibleMonitorTree.map((node) => (
-        <GroupNode
-          key={node.id}
-          node={node}
-          selectedGroupId={selectedGroupId}
-          onSelectGroup={onSelectGroup}
-          dndEnabled={canMove}
-          searchQuery={searchQuery}
-        />
+      {/* Group tree (monitor groups only) — bucketed per tenant in God View */}
+      {groupedRoots.map((bucket) => (
+        <div key={bucket.tenantId ?? 'flat'} className="space-y-0.5">
+          {isGodView && bucket.tenantId !== null && (
+            <div className="flex items-center gap-1.5 px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+              <span
+                className={
+                  'inline-block w-1.5 h-1.5 rounded-full ' +
+                  (isMasterTenant(bucket.tenantId) ? 'bg-accent' : 'bg-text-muted/50')
+                }
+              />
+              {tenantNameById.get(bucket.tenantId) ?? `Tenant ${bucket.tenantId}`}
+            </div>
+          )}
+          {bucket.nodes.map((node) => (
+            <GroupNode
+              key={node.id}
+              node={node}
+              selectedGroupId={selectedGroupId}
+              onSelectGroup={onSelectGroup}
+              dndEnabled={canMove}
+              searchQuery={searchQuery}
+            />
+          ))}
+        </div>
       ))}
 
       {/* Ungrouped monitors */}

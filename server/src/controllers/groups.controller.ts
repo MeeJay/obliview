@@ -36,7 +36,7 @@ export const groupsController = {
   async tree(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const isAdmin = req.session.role === 'admin';
-      const tree = await groupService.getTree(req.tenantId);
+      const tree = await groupService.getTree(getEffectiveTenantScope(req));
 
       if (isAdmin) {
         res.json({ success: true, data: tree });
@@ -209,7 +209,7 @@ export const groupsController = {
       const isAdmin = req.session.role === 'admin';
       const visibleIds = await permissionService.getVisibleGroupIds(req.session.userId!, isAdmin);
 
-      const allGroups = await groupService.getAll(req.tenantId);
+      const allGroups = await groupService.getAll(getEffectiveTenantScope(req));
       const result: Record<number, { uptimePct: number; total: number; up: number }> = {};
 
       for (const group of allGroups) {

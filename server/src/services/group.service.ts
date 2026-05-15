@@ -29,6 +29,7 @@ function rowToGroup(row: GroupRow): MonitorGroup {
     isGeneral: row.is_general,
     groupNotifications: row.group_notifications,
     kind: (row.kind as MonitorGroup['kind']) || 'monitor',
+    tenantId: row.tenant_id,
     agentThresholds: row.agent_thresholds
       ? (typeof row.agent_thresholds === 'string' ? JSON.parse(row.agent_thresholds) : row.agent_thresholds)
       : null,
@@ -234,7 +235,7 @@ export const groupService = {
     return rows.map(rowToGroup);
   },
 
-  async getTree(tenantId: number): Promise<GroupTreeNode[]> {
+  async getTree(tenantId: number | null): Promise<GroupTreeNode[]> {
     const allGroups = await this.getAll(tenantId);
     const groupMap = new Map<number, GroupTreeNode>();
 
