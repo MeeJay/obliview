@@ -20,7 +20,7 @@ import {
   Settings2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { SOCKET_EVENTS } from '@obliview/shared';
+import { SOCKET_EVENTS, isMasterTenant } from '@obliview/shared';
 import type { AgentApiKey, AgentDevice, MonitorGroup } from '@obliview/shared';
 import { anonymize, anonymizeIp } from '@/utils/anonymize';
 import { agentApi } from '@/api/agent.api';
@@ -30,6 +30,8 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { useUiStore } from '@/store/uiStore';
+import { useAuthStore } from '@/store/authStore';
+import { useTenantStore } from '@/store/tenantStore';
 import toast from 'react-hot-toast';
 
 type Tab = 'keys' | 'devices';
@@ -482,6 +484,14 @@ export function AdminAgentPage() {
   const [devices, setDevices] = useState<AgentDevice[]>([]);
   const [groups, setGroups] = useState<MonitorGroup[]>([]);
 
+  // God View = platform admin connected to the master tenant. Backend already
+  // fans out devices/keys cross-tenant in that case; we surface a tenant column
+  // and a banner so the operator can tell the listing is global, not scoped.
+  const { user: currentUser } = useAuthStore();
+  const { tenants: storeTenants, currentTenantId } = useTenantStore();
+  const isGodView = currentUser?.role === 'admin' && isMasterTenant(currentTenantId);
+  const tenantNameById = new Map(storeTenants.map((tn) => [tn.id, tn.name]));
+
   const { openAddAgentModal } = useUiStore();
   const [showCreateKey, setShowCreateKey] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
@@ -838,6 +848,18 @@ export function AdminAgentPage() {
       {/* ── Devices Tab ── */}
       {tab === 'devices' && (
         <>
+          {/* God View banner — visible only to platform admins on the master tenant */}
+          {isGodView && (
+            <div className="mb-4 flex items-center gap-2 rounded-md border border-accent/30 bg-accent/10 px-3 py-2">
+              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-accent text-bg-primary">
+                God View
+              </span>
+              <p className="text-xs text-text-secondary">
+                Showing devices across every tenant. Switch tenant via the topbar to scope to a single workspace.
+              </p>
+            </div>
+          )}
+
           {/* Status filter */}
           <div className="flex gap-1 mb-4">
             {(['all', 'approved', 'refused', 'suspended', 'pending'] as DeviceStatusFilter[]).map(f => (
@@ -914,6 +936,9 @@ export function AdminAgentPage() {
                       />
                     </th>
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-text-muted uppercase tracking-wide">Hostname</th>
+                    {isGodView && (
+                      <th className="px-4 py-2.5 text-left text-xs font-medium text-accent uppercase tracking-wide">Tenant</th>
+                    )}
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-text-muted uppercase tracking-wide">IP</th>
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-text-muted uppercase tracking-wide">OS</th>
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-text-muted uppercase tracking-wide">{t('common.agent')}</th>
@@ -954,6 +979,20 @@ export function AdminAgentPage() {
                         )}
                         <div className="text-[10px] text-text-muted font-mono mt-0.5">{device.uuid.slice(0, 12)}…</div>
                       </td>
+                      {isGodView && (
+                        <td className="px-4 py-3">
+                          <span
+                            className={
+                              'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ' +
+                              (isMasterTenant(device.tenantId)
+                                ? 'bg-accent/15 text-accent'
+                                : 'bg-bg-tertiary text-text-muted')
+                            }
+                          >
+                            {tenantNameById.get(device.tenantId) ?? `Tenant ${device.tenantId}`}
+                          </span>
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-text-muted">{anonymizeIp(device.ip) ?? '—'}</td>
                       <td className="px-4 py-3 text-text-muted">
                         {device.osInfo
@@ -1088,7 +1127,21 @@ export function AdminAgentPage() {
                 <div key={key.id} className="flex items-center gap-3 px-4 py-3 group">
                   <Key size={14} className="shrink-0 text-accent" />
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-text-primary text-sm">{key.name}</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-text-primary text-sm">{key.name}</span>
+                      {isGodView && (
+                        <span
+                          className={
+                            'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ' +
+                            (isMasterTenant(key.tenantId)
+                              ? 'bg-accent/15 text-accent'
+                              : 'bg-bg-tertiary text-text-muted')
+                          }
+                        >
+                          {tenantNameById.get(key.tenantId) ?? `Tenant ${key.tenantId}`}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-3 mt-0.5">
                       <span className="text-xs font-mono text-text-muted">{truncateKey(key.key)}</span>
                       <CopyButton text={key.key} />

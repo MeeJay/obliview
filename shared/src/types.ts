@@ -649,6 +649,7 @@ export interface AgentApiKey {
   id: number;
   name: string;
   key: string;
+  tenantId: number;
   createdBy: number | null;
   createdAt: string;
   lastUsedAt: string | null;

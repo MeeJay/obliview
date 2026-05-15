@@ -24,6 +24,7 @@ interface AgentApiKeyRow {
   id: number;
   name: string;
   key: string;
+  tenant_id: number;
   created_by: number | null;
   created_at: Date;
   last_used_at: Date | null;
@@ -76,6 +77,7 @@ function rowToApiKey(row: AgentApiKeyRow): AgentApiKey {
     id: row.id,
     name: row.name,
     key: row.key,
+    tenantId: row.tenant_id,
     createdBy: row.created_by,
     createdAt: row.created_at.toISOString(),
     lastUsedAt: row.last_used_at ? row.last_used_at.toISOString() : null,
