@@ -398,7 +398,6 @@ export const groupsController = {
 
       const group = await groupService.getById(groupId);
       if (!group) throw new AppError(404, 'Group not found');
-      if (group.kind !== 'agent') throw new AppError(400, 'Not an agent group');
 
       const { agentGroupConfig, agentThresholds } = req.body as {
         agentGroupConfig?: { pushIntervalSeconds?: number | null; heartbeatMonitoring?: boolean | null; maxMissedPushes?: number | null };

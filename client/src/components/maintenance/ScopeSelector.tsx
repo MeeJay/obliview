@@ -126,9 +126,10 @@ export function ScopeSelector({ defaultScopeType, defaultScopeId, onChange }: Pr
       .then(([groups, monitors, devices]) => {
         if (!mounted) return;
 
-        const mGroups = groups.filter((g) => g.kind === 'monitor');
-        const aGroups = groups.filter((g) => g.kind === 'agent');
-
+        // Hybrid groups: every group can hold monitors AND devices. Each panel
+        // below filters to groups that actually have at least one item of the
+        // panel's kind, so the user only sees relevant entries — groups with
+        // a mix appear in both panels.
         const mByGroup = new Map<number, MonitorType[]>();
         const ungM: MonitorType[] = [];
         for (const m of monitors) {
@@ -152,6 +153,9 @@ export function ScopeSelector({ defaultScopeType, defaultScopeId, onChange }: Pr
           }
         }
 
+        const mGroups = groups.filter((g) => mByGroup.has(g.id));
+        const aGroups = groups.filter((g) => aByGroup.has(g.id));
+
         // Sort everything alphabetically — same visual order as the sidebar
         mGroups.sort((a, b) => a.name.localeCompare(b.name));
         aGroups.sort((a, b) => a.name.localeCompare(b.name));
@@ -174,9 +178,14 @@ export function ScopeSelector({ defaultScopeType, defaultScopeId, onChange }: Pr
           if (defaultScopeType === 'global') {
             init.global = true;
           } else if (defaultScopeType === 'group') {
+            // Hybrid groups: pre-select the group in whichever panel(s) it has
+            // content. If it has both monitors AND devices, the user sees it
+            // selected in both panels.
             const g = groups.find((gr) => gr.id === defaultScopeId);
-            if (g?.kind === 'monitor') init.monitorGroupIds.add(defaultScopeId);
-            else if (g?.kind === 'agent') init.agentGroupIds.add(defaultScopeId);
+            if (g) {
+              if (mByGroup.has(g.id)) init.monitorGroupIds.add(defaultScopeId);
+              if (aByGroup.has(g.id)) init.agentGroupIds.add(defaultScopeId);
+            }
           } else if (defaultScopeType === 'monitor') {
             init.individualMonitorIds.add(defaultScopeId);
           } else if (defaultScopeType === 'agent') {

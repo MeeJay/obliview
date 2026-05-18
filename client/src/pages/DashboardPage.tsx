@@ -586,9 +586,9 @@ function GroupSection({
   // Skip entirely empty groups (no monitors at any level)
   if (!hasAnyMonitors(node, getMonitorsByGroup)) return null;
 
-  const groupIcon = node.kind === 'agent'
-    ? <Server size={16} className="text-accent" />
-    : <Folder size={16} className="text-accent" />;
+  // Hybrid groups: a generic folder icon. Leaf items (monitors / devices)
+  // carry their own type-specific icon in the tree below.
+  const groupIcon = <Folder size={16} className="text-accent" />;
 
   const expanded = isGroupExpanded(node.id);
 

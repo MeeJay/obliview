@@ -10,7 +10,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import { Building2, ChevronRight } from 'lucide-react';
+import { Building2, ChevronRight, Activity } from 'lucide-react';
 import { useGroupStore } from '@/store/groupStore';
 import { useMonitorStore } from '@/store/monitorStore';
 import { useAuthStore } from '@/store/authStore';
@@ -18,6 +18,8 @@ import { useTenantStore } from '@/store/tenantStore';
 import { useTenantCollapse } from '@/hooks/useTenantCollapse';
 import { isMasterTenant, MASTER_TENANT_ID } from '@obliview/shared';
 import { GroupNode } from './GroupNode';
+import { DraggableDevice } from './DraggableDevice';
+import { useGroupDevices } from './DevicesContext';
 import { MonitorStatusBadge } from '@/components/monitors/MonitorStatusBadge';
 import { cn } from '@/utils/cn';
 import { anonymize } from '@/utils/anonymize';
@@ -94,28 +96,45 @@ export function GroupTree({ selectedGroupId, onSelectGroup, searchQuery = '' }: 
     const { active, over } = event;
     if (!over) return;
 
-    const monitorData = active.data.current;
+    const dragData = active.data.current;
     const dropData = over.data.current;
-    if (monitorData?.type !== 'monitor' || !dropData) return;
+    if (!dragData || !dropData) return;
 
-    const monitorId = monitorData.monitor.id as number;
-    const targetGroupId = dropData.groupId as number | null;
+    const targetGroupId = (dropData.groupId ?? null) as number | null;
 
-    // Don't move if same group
-    if (monitorData.monitor.groupId === targetGroupId) return;
+    // Monitor drop
+    if (dragData.type === 'monitor') {
+      const monitor = dragData.monitor as Monitor;
+      if (monitor.groupId === targetGroupId) return;
+      try {
+        await monitorsApi.update(monitor.id, { groupId: targetGroupId });
+        updateMonitor(monitor.id, { groupId: targetGroupId });
+        fetchTree();
+        toast.success(t('groupTree.monitorMoved'));
+      } catch {
+        toast.error(t('groupTree.failedMoveMonitor'));
+      }
+      return;
+    }
 
-    try {
-      await monitorsApi.update(monitorId, { groupId: targetGroupId });
-      updateMonitor(monitorId, { groupId: targetGroupId });
-      fetchTree();
-      toast.success(t('groupTree.monitorMoved'));
-    } catch {
-      toast.error(t('groupTree.failedMoveMonitor'));
+    // Agent device drop — same tree, distinct API
+    if (dragData.type === 'agent-device') {
+      const device = dragData.device as { id: number; groupId: number | null };
+      if (device.groupId === targetGroupId) return;
+      try {
+        const { agentApi } = await import('@/api/agent.api');
+        await agentApi.updateDevice(device.id, { groupId: targetGroupId });
+        toast.success(t('groupTree.agentMoved'));
+        // Sidebar polls devices; we let its 30s tick + socket frames refresh.
+      } catch {
+        toast.error(t('groupTree.failedMoveAgent'));
+      }
     }
   };
 
-  // Only show monitor-kind groups (not agent groups — those appear in the Agent Groups sidebar section)
-  const monitorTree = tree.filter(n => n.kind !== 'agent');
+  // Hybrid model: every group can contain both monitors and agent devices.
+  // We show the full tree — leaf items render with distinct icons per type.
+  const monitorTree = tree;
 
   // When searching, filter root nodes to those that have at least one matching monitor in their subtree
   const hasMatchingMonitor = (node: import('@obliview/shared').GroupTreeNode): boolean => {
@@ -252,6 +271,7 @@ function UngroupedSection({
     id: 'drop-ungrouped',
     data: { groupId: null },
   });
+  const { list: ungroupedDevices, enabled: devicesEnabled, statuses: deviceStatuses } = useGroupDevices(null);
 
   return (
     <div
@@ -276,6 +296,15 @@ function UngroupedSection({
           navigate={navigate}
           location={location}
           getMonitorSummary={getMonitorSummary}
+        />
+      ))}
+      {devicesEnabled && ungroupedDevices.map((device) => (
+        <DraggableDevice
+          key={`dev-${device.id}`}
+          device={device}
+          status={deviceStatuses.get(device.id)}
+          depth={0}
+          dndEnabled={dndEnabled}
         />
       ))}
     </div>
@@ -349,6 +378,7 @@ export function DraggableMonitor({
       )}
       style={{ paddingLeft: `${depth * 16 + 8}px` }}
     >
+      <Activity size={12} className="shrink-0 text-text-muted" />
       <MonitorStatusBadge status={monitor.status} size="sm" inMaintenance={monitor.inMaintenance} />
       <span className="truncate flex-1 text-left">{anonymize(monitor.name)}</span>
 

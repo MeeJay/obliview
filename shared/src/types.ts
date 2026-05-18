@@ -195,8 +195,9 @@ export interface MonitorGroup {
   sortOrder: number;
   isGeneral: boolean;
   groupNotifications: boolean;
-  kind: 'monitor' | 'agent';
   tenantId: number;
+  /** Agent-specific settings stored on every group — only meaningful when the
+   *  group contains devices. Inert for groups that only hold monitors. */
   agentThresholds?: AgentThresholds | null;
   agentGroupConfig?: AgentGroupConfig | null;
   createdAt: string;
@@ -353,7 +354,6 @@ export interface CreateGroupRequest {
   sortOrder?: number;
   isGeneral?: boolean;
   groupNotifications?: boolean;
-  kind?: 'monitor' | 'agent';
 }
 
 export interface UpdateGroupRequest {

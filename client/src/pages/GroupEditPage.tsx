@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, ChevronUp, ChevronDown, FolderTree, Server } from 'lucide-react';
+import { ArrowLeft, ChevronUp, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { MonitorGroup, GroupTreeNode } from '@obliview/shared';
 import { groupsApi } from '@/api/groups.api';
@@ -186,17 +186,6 @@ export function GroupEditPage() {
 
       <div className="flex items-center gap-3 mb-6">
         <h1 className="text-2xl font-semibold text-text-primary">{t('groups.edit')}</h1>
-        {group.kind === 'agent' ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-bg-tertiary border border-border px-2.5 py-0.5 text-xs font-medium text-text-muted">
-            <Server size={11} />
-            {t('groups.agentGroup')}
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 rounded-full bg-bg-tertiary border border-border px-2.5 py-0.5 text-xs font-medium text-text-muted">
-            <FolderTree size={11} />
-            {t('groups.monitorGroup')}
-          </span>
-        )}
       </div>
 
       {/* General */}
@@ -282,7 +271,6 @@ export function GroupEditPage() {
               tree={tree}
               placeholder={t('groups.form.parentNone')}
               excludeId={groupId}
-              kindFilter={group.kind}
             />
             {pendingParentId !== undefined && (
               <div className="flex items-center gap-2 mt-2">

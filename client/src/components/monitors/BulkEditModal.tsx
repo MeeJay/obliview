@@ -82,9 +82,10 @@ function FieldRow({
 export function BulkEditModal({ monitorIds, isAgentSelection, onClose }: BulkEditModalProps) {
   const { t } = useTranslation();
   const { tree } = useGroupStore();
-  const agentGroupTree = tree.filter((node) => node.kind === 'agent');
-  const monitorGroupTree = tree.filter((node) => node.kind === 'monitor');
-  const groupTree = isAgentSelection ? agentGroupTree : monitorGroupTree;
+  // Hybrid groups: any group can host monitors AND devices — no need to split
+  // the picker tree by kind anymore. `isAgentSelection` still gates the
+  // bulk-editable form fields below.
+  const groupTree = tree;
   const { updateMonitor: updateStoreMonitor } = useMonitorStore();
   const [form, setForm] = useState<BulkFormState>(makeDefaultState);
   const [saving, setSaving] = useState(false);

@@ -137,9 +137,11 @@ export const importExportController = {
         return _monitorUuidMap;
       }
 
-      // ── Monitor Groups (kind='monitor') ─────────────────────────────────────
+      // ── Groups (hybrid: every group can contain both monitors and devices) ─
+      // Exported under `monitorGroups` for backward-compat with older import
+      // payloads; agent-specific JSONB fields ride along on each group entry.
       if (want('monitorGroups')) {
-        const groups  = await db('monitor_groups').where({ kind: 'monitor', tenant_id: tenantId }).orderBy('sort_order').orderBy('name');
+        const groups  = await db('monitor_groups').where({ tenant_id: tenantId }).orderBy('sort_order').orderBy('name');
         const selfMap = new Map<number, string>(groups.map((g: any) => [g.id as number, g.uuid as string]));
 
         payload.monitorGroups = groups.map((g: any) => ({
@@ -150,6 +152,8 @@ export const importExportController = {
           sortOrder:          g.sort_order,
           isGeneral:          g.is_general,
           groupNotifications: g.group_notifications,
+          agentThresholds:    g.agent_thresholds,
+          agentGroupConfig:   g.agent_group_config,
         }));
       }
 
@@ -259,21 +263,10 @@ export const importExportController = {
         }));
       }
 
-      // ── Agent Groups (kind='agent') ──────────────────────────────────────────
-      if (want('agentGroups')) {
-        const groups  = await db('monitor_groups').where({ kind: 'agent', tenant_id: tenantId }).orderBy('sort_order').orderBy('name');
-        const selfMap = new Map<number, string>(groups.map((g: any) => [g.id as number, g.uuid as string]));
-
-        payload.agentGroups = groups.map((g: any) => ({
-          uuid:             g.uuid,
-          name:             g.name,
-          description:      g.description,
-          parentUuid:       g.parent_id != null ? (selfMap.get(g.parent_id) ?? null) : null,
-          sortOrder:        g.sort_order,
-          agentThresholds:  g.agent_thresholds,
-          agentGroupConfig: g.agent_group_config,
-        }));
-      }
+      // Legacy `agentGroups` section is no longer emitted: every group now
+      // exports under `monitorGroups` with its agent JSONB fields inline. The
+      // import side still accepts old payloads that have both sections — they
+      // get merged into the unified `monitor_groups` table.
 
       // ── Remediation Actions ──────────────────────────────────────────────────
       if (want('remediationActions')) {
@@ -565,7 +558,8 @@ export const importExportController = {
                 sort_order:          (g.sortOrder as number) ?? 0,
                 is_general:          (g.isGeneral as boolean) ?? false,
                 group_notifications: (g.groupNotifications as boolean) ?? false,
-                kind:                'monitor',
+                agent_thresholds:    g.agentThresholds ? JSON.stringify(g.agentThresholds) : null,
+                agent_group_config:  g.agentGroupConfig ? JSON.stringify(g.agentGroupConfig) : null,
                 tenant_id:           tenantId,
               }).returning('*');
 
@@ -808,7 +802,6 @@ export const importExportController = {
                 sort_order:         (g.sortOrder as number) ?? 0,
                 is_general:         false,
                 group_notifications: false,
-                kind:               'agent',
                 agent_thresholds:   g.agentThresholds  ? JSON.stringify(g.agentThresholds)  : null,
                 agent_group_config: g.agentGroupConfig ? JSON.stringify(g.agentGroupConfig) : null,
                 tenant_id:          tenantId,

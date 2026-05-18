@@ -7,6 +7,8 @@ import { anonymize } from '@/utils/anonymize';
 import { useMonitorStore } from '@/store/monitorStore';
 import { useGroupStore } from '@/store/groupStore';
 import { DraggableMonitor } from './GroupTree';
+import { DraggableDevice } from './DraggableDevice';
+import { useGroupDevices } from './DevicesContext';
 
 /** Collect all group IDs in a subtree (including self) */
 function collectGroupIds(node: GroupTreeNode): number[] {
@@ -34,6 +36,7 @@ export function GroupNode({ node, depth = 0, selectedGroupId, onSelectGroup, dnd
   const expanded = isGroupExpanded(node.id);
 
   const allMonitors = getMonitorsByGroup(node.id);
+  const { list: groupDevices, enabled: devicesEnabled, statuses: deviceStatuses } = useGroupDevices(node.id);
 
   // When a search is active, filter monitors and child groups to matching ones only
   const isSearching = searchQuery.length > 0;
@@ -51,10 +54,14 @@ export function GroupNode({ node, depth = 0, selectedGroupId, onSelectGroup, dnd
     ? node.children.filter(hasMatchingInSubtree)
     : node.children;
 
+  const visibleDevices = isSearching
+    ? groupDevices.filter((d) => (d.name ?? d.hostname).toLowerCase().includes(searchQuery.toLowerCase()))
+    : groupDevices;
+
   // Force-expand when searching so matched monitors are visible
   const effectiveExpanded = isSearching ? true : expanded;
 
-  const hasContent = node.children.length > 0 || allMonitors.length > 0;
+  const hasContent = node.children.length > 0 || allMonitors.length > 0 || groupDevices.length > 0;
   const isSelected = selectedGroupId === node.id;
   const stats = getGroupStats(node.id);
 
@@ -215,6 +222,19 @@ export function GroupNode({ node, depth = 0, selectedGroupId, onSelectGroup, dnd
               navigate={navigate}
               location={location}
               getMonitorSummary={getMonitorSummary}
+            />
+          ))}
+
+          {/* Agent devices in this group (when the tree is rendered inside a
+              <DevicesProvider> — i.e. the sidebar). Distinct Cpu icon signals
+              this is a device, not a monitor. */}
+          {devicesEnabled && visibleDevices.map((device) => (
+            <DraggableDevice
+              key={`dev-${device.id}`}
+              device={device}
+              status={deviceStatuses.get(device.id)}
+              depth={depth + 1}
+              dndEnabled={dndEnabled}
             />
           ))}
         </div>

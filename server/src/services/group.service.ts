@@ -10,7 +10,6 @@ interface GroupRow {
   sort_order: number;
   is_general: boolean;
   group_notifications: boolean;
-  kind: string;
   tenant_id: number;
   agent_thresholds?: AgentThresholds | null;
   agent_group_config?: AgentGroupConfig | null;
@@ -28,7 +27,6 @@ function rowToGroup(row: GroupRow): MonitorGroup {
     sortOrder: row.sort_order,
     isGeneral: row.is_general,
     groupNotifications: row.group_notifications,
-    kind: (row.kind as MonitorGroup['kind']) || 'monitor',
     tenantId: row.tenant_id,
     agentThresholds: row.agent_thresholds
       ? (typeof row.agent_thresholds === 'string' ? JSON.parse(row.agent_thresholds) : row.agent_thresholds)
@@ -80,7 +78,6 @@ export const groupService = {
     sortOrder?: number;
     isGeneral?: boolean;
     groupNotifications?: boolean;
-    kind?: 'monitor' | 'agent';
   }, tenantId: number): Promise<MonitorGroup> {
     const slug = await ensureUniqueSlug(slugify(data.name));
 
@@ -93,7 +90,6 @@ export const groupService = {
         sort_order: data.sortOrder ?? 0,
         is_general: data.isGeneral ?? false,
         group_notifications: data.groupNotifications ?? false,
-        kind: data.kind ?? 'monitor',
         tenant_id: tenantId,
       })
       .returning('*');

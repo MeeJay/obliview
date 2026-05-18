@@ -169,7 +169,8 @@ function ApproveModal({
 }) {
   const { t } = useTranslation();
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
-  const agentGroups = groups.filter(g => g.kind === 'agent');
+  // Hybrid groups: every group is a valid target for an agent device.
+  const agentGroups = groups;
   const selectedGroup = agentGroups.find(g => g.id === selectedGroupId);
   const hasGroupThresholds = selectedGroup?.agentThresholds != null;
 
@@ -239,7 +240,7 @@ function EditAgentModal({
   const [saving, setSaving] = useState(false);
 
   const { t } = useTranslation();
-  const agentGroups = groups.filter(g => g.kind === 'agent');
+  const agentGroups = groups;
 
   const handleSave = async () => {
     setSaving(true);
@@ -368,7 +369,7 @@ function BulkEditAgentModal({
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
-  const agentGroups = groups.filter(g => g.kind === 'agent');
+  const agentGroups = groups;
 
   // Compute initial tri-state values: single value if all same, null if mixed
   const allSameHeartbeat = devices.every(d => d.heartbeatMonitoring === devices[0].heartbeatMonitoring);

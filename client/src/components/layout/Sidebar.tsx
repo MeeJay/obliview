@@ -1,14 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import {
-  DndContext,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  useDroppable,
-  useDraggable,
-  type DragEndEvent,
-} from '@dnd-kit/core';
 import {
   LayoutDashboard,
   Settings,
@@ -18,12 +9,9 @@ import {
   Plus,
   LogOut,
   Cpu,
-  Server,
-  ArrowLeftRight,
   PackageOpen,
   ShieldCheck,
   ChevronDown,
-  ChevronRight,
   CalendarClock,
   Building2,
   ChevronsLeft,
@@ -34,20 +22,18 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/cn';
-import { anonymize, anonymizeUsername } from '@/utils/anonymize';
+import { anonymizeUsername } from '@/utils/anonymize';
 import { useAuthStore } from '@/store/authStore';
 import { useMonitorStore } from '@/store/monitorStore';
-import { useGroupStore } from '@/store/groupStore';
 import { useTenantStore } from '@/store/tenantStore';
 import { useUiStore } from '@/store/uiStore';
 import { GroupTree } from '@/components/groups/GroupTree';
+import { DevicesProvider } from '@/components/groups/DevicesContext';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { agentApi } from '@/api/agent.api';
 import { getSocket } from '@/socket/socketClient';
 import type { AgentDevice, MonitorStatus } from '@obliview/shared';
-import { SOCKET_EVENTS, isMasterTenant, MASTER_TENANT_ID } from '@obliview/shared';
-import { useTenantCollapse } from '@/hooks/useTenantCollapse';
-import toast from 'react-hot-toast';
+import { SOCKET_EVENTS } from '@obliview/shared';
 
 // ── localStorage helpers ─────────────────────────────────────────────────────
 
@@ -70,100 +56,6 @@ function usePersisted<T>(key: string, initial: T): [T, (v: T | ((prev: T) => T))
   return [value, set];
 }
 
-// ── Status badge (dot + label) ────────────────────────────────────────────────
-
-function AgentStatusBadge({ status }: { status: MonitorStatus | 'suspended' | undefined }) {
-  const cfg: Record<string, { dot: string; text: string; label: string }> = {
-    up:          { dot: 'bg-green-500',               text: 'text-green-400',  label: 'UP'       },
-    down:        { dot: 'bg-red-500',                 text: 'text-red-400',    label: 'DOWN'     },
-    alert:       { dot: 'bg-orange-500',              text: 'text-orange-400', label: 'ALERT'    },
-    inactive:    { dot: 'bg-gray-400',                text: 'text-gray-400',   label: 'OFFLINE'  },
-    suspended:   { dot: 'bg-gray-500',                text: 'text-gray-500',   label: 'PAUSED'   },
-    paused:      { dot: 'bg-gray-500',                text: 'text-gray-500',   label: 'PAUSED'   },
-    pending:     { dot: 'bg-yellow-500',              text: 'text-yellow-400', label: 'PENDING'  },
-    ssl_warning: { dot: 'bg-yellow-400',              text: 'text-yellow-400', label: 'WARN'     },
-    ssl_expired: { dot: 'bg-red-500',                 text: 'text-red-400',    label: 'EXPIRED'  },
-    updating:    { dot: 'bg-blue-500 animate-pulse',  text: 'text-blue-400',   label: 'UPDATE'   },
-  };
-  const s = cfg[status ?? ''] ?? { dot: 'bg-gray-400', text: 'text-gray-400', label: '···' };
-  return (
-    <span className="flex items-center gap-1 shrink-0">
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.dot}`} />
-      <span className={`text-[9px] font-semibold leading-none ${s.text}`}>{s.label}</span>
-    </span>
-  );
-}
-
-// ── Draggable Agent Device Item ───────────────────────────────────────────────
-
-function DraggableDeviceItem({
-  device,
-  monitorStatus,
-  indent = false,
-}: {
-  device: AgentDevice;
-  monitorStatus: MonitorStatus | undefined;
-  indent?: boolean;
-}) {
-  const location = useLocation();
-  const isActive = location.pathname === `/agents/${device.id}`;
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `agent-device-${device.id}`,
-    data: { type: 'agent-device', device },
-  });
-
-  const displayName = anonymize(device.name ?? device.hostname);
-
-  return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      style={{ opacity: isDragging ? 0.4 : 1, paddingLeft: indent ? '24px' : undefined }}
-    >
-      <Link
-        to={`/agents/${device.id}`}
-        className={cn(
-          'flex items-center gap-2 rounded-md py-1 px-2 text-sm transition-colors',
-          isActive
-            ? 'bg-accent/10 text-accent-hover'
-            : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
-        )}
-        onClick={e => { if (isDragging) e.preventDefault(); }}
-      >
-        <AgentStatusBadge status={device.status === 'suspended' ? 'suspended' : monitorStatus} />
-        <span className="truncate flex-1 text-xs">{displayName}</span>
-      </Link>
-    </div>
-  );
-}
-
-// ── Droppable Group Header ─────────────────────────────────────────────────────
-
-function DroppableGroupHeader({
-  groupId,
-  children,
-}: {
-  groupId: number | null;
-  children: React.ReactNode;
-}) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: groupId === null ? 'drop-agent-ungrouped' : `drop-agent-group-${groupId}`,
-    data: { type: 'agent-group', groupId },
-  });
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        'rounded-md transition-colors',
-        isOver && 'ring-1 ring-accent bg-accent/10',
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
 // ── Nav items ────────────────────────────────────────────────────────────────
 
 interface NavItem {
@@ -178,7 +70,7 @@ interface NavItem {
 export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
-  const { user, isAdmin, canCreate } = useAuthStore();
+  const { isAdmin, canCreate, user } = useAuthStore();
 
   const topNavItems: NavItem[] = [
     { label: t('nav.dashboard'), path: '/', icon: <LayoutDashboard size={16} /> },
@@ -203,30 +95,15 @@ export function Sidebar() {
     toggleSidebarCollapsed,
   } = useUiStore();
   const { fetchMonitors, monitors } = useMonitorStore();
-  const { tree } = useGroupStore();
-  const { currentTenantId, tenants: storeTenants } = useTenantStore();
-  const { isCollapsed: tenantCollapsed, toggle: toggleTenantCollapsed } = useTenantCollapse();
+  const { currentTenantId } = useTenantStore();
 
   const [approvedDevices, setApprovedDevices] = useState<AgentDevice[]>([]);
-  const [deviceStatuses, setDeviceStatuses] = useState<Map<number, string>>(new Map());
+  const [deviceStatuses, setDeviceStatuses] = useState<Map<number, MonitorStatus | 'suspended' | undefined>>(new Map());
   const [search, setSearch] = useState('');
 
-  // Layout preferences
-  const [sidebarLayout, setSidebarLayout] = usePersisted<'stacked' | 'side-by-side'>('sidebar-layout', 'stacked');
-  const [showMonitors, setShowMonitors] = usePersisted<boolean>('sidebar-show-monitors', true);
-  const [showAgents, setShowAgents] = usePersisted<boolean>('sidebar-show-agents', true);
-  const [splitPercent, setSplitPercent] = usePersisted<number>('sidebar-split-percent', 50);
   const [adminMenuOpen, setAdminMenuOpen] = usePersisted<boolean>('sidebar:admin-open', true);
-  const splitContainerRef = useRef<HTMLDivElement>(null);
 
-  const agentGroups = tree.filter(n => n.kind === 'agent');
   const admin = isAdmin();
-  const isGodView = user?.role === 'admin' && isMasterTenant(currentTenantId);
-  const tenantNameById = new Map(storeTenants.map((tn) => [tn.id, tn.name]));
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-  );
 
   useEffect(() => {
     fetchMonitors();
@@ -278,7 +155,7 @@ export function Sidebar() {
     };
 
     const onStatusChanged = (data: { deviceId: number; status: string }) => {
-      setDeviceStatuses(prev => new Map(prev).set(data.deviceId, data.status));
+      setDeviceStatuses(prev => new Map(prev).set(data.deviceId, data.status as MonitorStatus | 'suspended'));
     };
 
     socket.on(SOCKET_EVENTS.AGENT_DEVICE_UPDATED, onDeviceUpdated);
@@ -289,185 +166,21 @@ export function Sidebar() {
     };
   }, [admin, loadDevices]);
 
-  const getMonitorStatus = useCallback(
-    (deviceId: number): MonitorStatus | undefined => {
-      const live = deviceStatuses.get(deviceId);
-      if (live) return live as MonitorStatus;
+  // Resolve a status for each device by merging the live socket status with
+  // its underlying agent monitor's last known status (fallback when no live
+  // frame has arrived yet). Result is passed to <DevicesProvider> so leaf
+  // DraggableDevice rows show the right colored dot from the first render.
+  const resolvedDeviceStatuses = (() => {
+    const map = new Map<number, MonitorStatus | 'suspended' | undefined>();
+    for (const dev of approvedDevices) {
+      const live = deviceStatuses.get(dev.id);
+      if (live) { map.set(dev.id, live); continue; }
       for (const m of monitors.values()) {
-        if (m.agentDeviceId === deviceId) return m.status;
+        if (m.agentDeviceId === dev.id) { map.set(dev.id, m.status); break; }
       }
-      return undefined;
-    },
-    [deviceStatuses, monitors],
-  );
-
-  const handleAgentDragEnd = useCallback(
-    async (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over) return;
-
-      const dragData = active.data.current;
-      const dropData = over.data.current;
-
-      if (dragData?.type !== 'agent-device' || dropData?.type !== 'agent-group') return;
-
-      const device = dragData.device as AgentDevice;
-      const targetGroupId = dropData.groupId as number | null;
-
-      if (device.groupId === targetGroupId) return;
-
-      try {
-        await agentApi.updateDevice(device.id, { groupId: targetGroupId });
-        loadDevices();
-        toast.success(t('groupTree.agentMoved'));
-      } catch {
-        toast.error(t('groupTree.failedMoveAgent'));
-      }
-    },
-    [loadDevices, t],
-  );
-
-  const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const handleMouseMove = (ev: MouseEvent) => {
-      if (!splitContainerRef.current) return;
-      const rect = splitContainerRef.current.getBoundingClientRect();
-      const pct = Math.round(((ev.clientX - rect.left) / rect.width) * 100);
-      setSplitPercent(Math.max(20, Math.min(80, pct)));
-    };
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, [setSplitPercent]);
-
-  const renderAgentContent = (hideHeader = false) => {
-    if (!admin) return null;
-
-    // Render the groups + their devices, optionally restricted to a single tenant.
-    const renderGroups = (tenantId: number | null) => {
-      const filteredGroups = tenantId === null
-        ? agentGroups
-        : agentGroups.filter(g => g.tenantId === tenantId);
-      const filteredUngrouped = approvedDevices.filter(d => {
-        if (d.groupId !== null) return false;
-        if (tenantId === null) return true;
-        return d.tenantId === tenantId;
-      });
-
-      return (
-        <>
-          {filteredGroups.map(group => {
-            const isGroupActive = location.pathname === `/group/${group.id}`;
-            const groupDevices = approvedDevices.filter(d => d.groupId === group.id);
-            return (
-              <DroppableGroupHeader key={group.id} groupId={group.id}>
-                <Link
-                  to={`/group/${group.id}`}
-                  className={cn(
-                    'flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors',
-                    isGroupActive
-                      ? 'bg-accent/10 text-accent-hover'
-                      : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
-                  )}
-                >
-                  <Server size={14} className="shrink-0 text-text-muted" />
-                  <span className="truncate flex-1">{anonymize(group.name)}</span>
-                  {groupDevices.length > 0 && (
-                    <span className="font-mono text-[10px] text-text-muted">{groupDevices.length}</span>
-                  )}
-                </Link>
-                {groupDevices.map(device => (
-                  <DraggableDeviceItem
-                    key={device.id}
-                    device={device}
-                    monitorStatus={getMonitorStatus(device.id)}
-                    indent
-                  />
-                ))}
-              </DroppableGroupHeader>
-            );
-          })}
-
-          {filteredUngrouped.length > 0 && (
-            <DroppableGroupHeader groupId={null}>
-              {filteredUngrouped.map(device => (
-                <DraggableDeviceItem
-                  key={device.id}
-                  device={device}
-                  monitorStatus={getMonitorStatus(device.id)}
-                />
-              ))}
-            </DroppableGroupHeader>
-          )}
-        </>
-      );
-    };
-
-    // God View: bucket groups + ungrouped devices per tenant. Master first.
-    const tenantIds = isGodView
-      ? (() => {
-          const ids = new Set<number>();
-          for (const g of agentGroups) ids.add(g.tenantId);
-          for (const d of approvedDevices) ids.add(d.tenantId);
-          return Array.from(ids).sort((a, b) => {
-            if (isMasterTenant(a)) return -1;
-            if (isMasterTenant(b)) return 1;
-            return (tenantNameById.get(a) ?? '').localeCompare(tenantNameById.get(b) ?? '');
-          });
-        })()
-      : [];
-
-    return (
-      <DndContext sensors={sensors} onDragEnd={handleAgentDragEnd}>
-        <div className={hideHeader ? '' : 'mt-3'}>
-          {!hideHeader && (
-            <div className="px-3.5 pb-1.5 pt-3.5 text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
-              {t('groups.agentGroup')}
-            </div>
-          )}
-
-          {isGodView ? (
-            tenantIds.map(tid => {
-              const collapsed = tenantCollapsed(tid);
-              const tenantName = tenantNameById.get(tid) ?? `Tenant ${tid}`;
-              return (
-                <div key={tid} className="mt-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleTenantCollapsed(tid)}
-                    title={collapsed ? `Expand ${tenantName}` : `Collapse ${tenantName}`}
-                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-[0.14em] text-accent hover:bg-accent/5 transition-colors"
-                  >
-                    <ChevronRight
-                      size={11}
-                      className={cn('shrink-0 transition-transform duration-150', !collapsed && 'rotate-90')}
-                    />
-                    <Building2 size={11} className="shrink-0" />
-                    <span className="truncate flex-1 text-left">
-                      {tenantName}
-                      {tid === MASTER_TENANT_ID && (
-                        <span className="ml-1 text-text-muted font-normal normal-case tracking-normal">(master)</span>
-                      )}
-                    </span>
-                  </button>
-                  {!collapsed && renderGroups(tid)}
-                </div>
-              );
-            })
-          ) : (
-            renderGroups(null)
-          )}
-        </div>
-      </DndContext>
-    );
-  };
+    }
+    return map;
+  })();
 
   // ── Collapsed (icon-only, 64 px) render ────────────────────────────────────
 
@@ -604,89 +317,13 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Filter chips + layout toggle */}
-      {admin && agentGroups.length > 0 && sidebarLayout === 'stacked' && (
-        <div className="flex items-center justify-between gap-2 px-3 pb-1.5">
-          <div className="flex gap-1">
-            <button
-              onClick={() => setShowMonitors(v => !v)}
-              className={cn(
-                'rounded-full px-2 py-0.5 text-xs transition-colors',
-                showMonitors
-                  ? 'bg-accent/20 text-accent-hover'
-                  : 'bg-bg-hover text-text-muted hover:text-text-secondary',
-              )}
-            >
-              {t('importExport.monitors')}
-            </button>
-            <button
-              onClick={() => setShowAgents(v => !v)}
-              className={cn(
-                'rounded-full px-2 py-0.5 text-xs transition-colors',
-                showAgents
-                  ? 'bg-accent/20 text-accent-hover'
-                  : 'bg-bg-hover text-text-muted hover:text-text-secondary',
-              )}
-            >
-              {t('nav.agents')}
-            </button>
-          </div>
-          <button
-            onClick={() => setSidebarLayout('side-by-side')}
-            title="Switch to side-by-side"
-            className="shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"
-          >
-            <ArrowLeftRight size={13} />
-          </button>
-        </div>
-      )}
-
-      {/* Section header — "APPAREILS" */}
-      {admin && (
-        <div className="px-3.5 pb-1.5 pt-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-text-muted">
-          {t('groups.agentGroup', { defaultValue: 'APPAREILS' })}
-        </div>
-      )}
-
-      {/* Body */}
-      {sidebarLayout === 'side-by-side' && admin && agentGroups.length > 0 ? (
-        <div ref={splitContainerRef} className="flex min-h-0 flex-1 flex-row overflow-hidden">
-          <div className="flex min-w-0 flex-col overflow-hidden" style={{ width: `${splitPercent}%` }}>
-            <div className="shrink-0 px-3 pb-1.5 pt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-muted">
-              {t('importExport.monitors')}
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2">
-              <GroupTree searchQuery={search} />
-            </div>
-          </div>
-
-          <div
-            onMouseDown={handleSplitMouseDown}
-            className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-accent/40 active:bg-accent/60"
-          />
-
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="flex shrink-0 items-center justify-between px-3 pb-1.5 pt-1">
-              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-muted">{t('nav.agents')}</span>
-              <button
-                onClick={() => setSidebarLayout('stacked')}
-                title="Switch to stacked"
-                className="shrink-0 rounded p-0.5 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"
-              >
-                <ArrowLeftRight size={12} />
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2">
-              {renderAgentContent(true)}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto px-2 pb-2">
-          {showMonitors && <GroupTree searchQuery={search} />}
-          {showAgents && renderAgentContent(false)}
-        </div>
-      )}
+      {/* Body — single unified tree: groups are hybrid, monitors and devices
+          live side-by-side under each group with distinct leaf icons. */}
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
+        <DevicesProvider devices={approvedDevices} statuses={resolvedDeviceStatuses} enabled={admin}>
+          <GroupTree searchQuery={search} />
+        </DevicesProvider>
+      </div>
 
       {/* Top nav */}
       <nav className="px-2 pt-2">

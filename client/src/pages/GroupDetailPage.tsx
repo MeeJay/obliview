@@ -408,7 +408,12 @@ export function GroupDetailPage() {
   const [periodHeartbeats, setPeriodHeartbeats] = useState<Heartbeat[]>([]);
   const [stats, setStats] = useState<GroupStats | null>(null);
 
-  const isAgentGroup = group?.kind === 'agent';
+  // Hybrid groups: derive "is this group displaying agents?" from the monitor
+  // list — agent monitors are linked to devices, so their presence flips the
+  // page to the agent-shaped UI. A group with zero agent monitors renders the
+  // regular monitor UI. (A group with both types is a follow-up: today the
+  // page picks the agent shape when ANY agent monitor is present.)
+  const isAgentGroup = monitors.some((m) => m.type === 'agent');
 
   // Fetch group + monitors on mount
   useEffect(() => {

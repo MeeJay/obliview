@@ -9,8 +9,6 @@ interface GroupPickerProps {
   tree: GroupTreeNode[];
   placeholder?: string;
   excludeId?: number;
-  /** When set, only show groups whose kind matches this value */
-  kindFilter?: 'monitor' | 'agent';
 }
 
 /** Find a group name by ID in the tree recursively */
@@ -23,16 +21,11 @@ function findGroupName(tree: GroupTreeNode[], id: number): string | null {
   return null;
 }
 
-/** Check if any node in the tree matches the filter (and optionally the kindFilter) */
-function treeContainsMatch(tree: GroupTreeNode[], filter: string, excludeId?: number, kindFilter?: 'monitor' | 'agent'): boolean {
+function treeContainsMatch(tree: GroupTreeNode[], filter: string, excludeId?: number): boolean {
   for (const node of tree) {
     if (node.id === excludeId) continue;
-    if (kindFilter && node.kind !== kindFilter) {
-      if (treeContainsMatch(node.children, filter, excludeId, kindFilter)) return true;
-      continue;
-    }
     if (node.name.toLowerCase().includes(filter)) return true;
-    if (treeContainsMatch(node.children, filter, excludeId, kindFilter)) return true;
+    if (treeContainsMatch(node.children, filter, excludeId)) return true;
   }
   return false;
 }
@@ -44,51 +37,23 @@ interface TreeNodeProps {
   onSelect: (id: number | null) => void;
   filter: string;
   excludeId?: number;
-  kindFilter?: 'monitor' | 'agent';
 }
 
-function TreeNode({ node, depth, selectedId, onSelect, filter, excludeId, kindFilter }: TreeNodeProps) {
+function TreeNode({ node, depth, selectedId, onSelect, filter, excludeId }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(true);
 
   if (excludeId && node.id === excludeId) return null;
 
-  // If kindFilter is set and this node doesn't match, skip rendering the node itself
-  // but still render children (they might match)
-  const kindMatch = !kindFilter || node.kind === kindFilter;
-
-  const matchesSelf = kindMatch && node.name.toLowerCase().includes(filter);
-  const childrenMatch = treeContainsMatch(node.children, filter, excludeId, kindFilter);
-  if (!matchesSelf && !childrenMatch) return null;
+  const matchesSelf = node.name.toLowerCase().includes(filter);
+  const childrenMatch = treeContainsMatch(node.children, filter, excludeId);
+  if (filter && !matchesSelf && !childrenMatch) return null;
 
   const hasVisibleChildren = node.children.some((c) => {
     if (excludeId && c.id === excludeId) return false;
-    const cKindMatch = !kindFilter || c.kind === kindFilter;
-    if (!filter && !kindFilter) return true;
-    if (cKindMatch && (!filter || c.name.toLowerCase().includes(filter))) return true;
-    return treeContainsMatch(c.children, filter, excludeId, kindFilter);
+    if (!filter) return true;
+    if (c.name.toLowerCase().includes(filter)) return true;
+    return treeContainsMatch(c.children, filter, excludeId);
   });
-
-  const children = (
-    <div>
-      {node.children.map((child) => (
-        <TreeNode
-          key={child.id}
-          node={child}
-          depth={kindMatch ? depth + 1 : depth}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          filter={filter}
-          excludeId={excludeId}
-          kindFilter={kindFilter}
-        />
-      ))}
-    </div>
-  );
-
-  // If this node's kind doesn't match the filter, render only its children (transparent wrapper)
-  if (!kindMatch) {
-    return childrenMatch ? children : null;
-  }
 
   return (
     <div>
@@ -120,12 +85,26 @@ function TreeNode({ node, depth, selectedId, onSelect, filter, excludeId, kindFi
         <span className="truncate">{node.name}</span>
       </button>
 
-      {expanded && hasVisibleChildren && children}
+      {expanded && hasVisibleChildren && (
+        <div>
+          {node.children.map((child) => (
+            <TreeNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              selectedId={selectedId}
+              onSelect={onSelect}
+              filter={filter}
+              excludeId={excludeId}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-export function GroupPicker({ value, onChange, tree, placeholder = 'Select a group', excludeId, kindFilter }: GroupPickerProps) {
+export function GroupPicker({ value, onChange, tree, placeholder = 'Select a group', excludeId }: GroupPickerProps) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,7 +112,6 @@ export function GroupPicker({ value, onChange, tree, placeholder = 'Select a gro
 
   const selectedName = value ? findGroupName(tree, value) : null;
 
-  // Close on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -144,7 +122,6 @@ export function GroupPicker({ value, onChange, tree, placeholder = 'Select a gro
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  // Focus search on open
   useEffect(() => {
     if (open && inputRef.current) {
       inputRef.current.focus();
@@ -159,7 +136,6 @@ export function GroupPicker({ value, onChange, tree, placeholder = 'Select a gro
 
   return (
     <div ref={containerRef} className="relative">
-      {/* Trigger button */}
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -171,10 +147,8 @@ export function GroupPicker({ value, onChange, tree, placeholder = 'Select a gro
         <ChevronDown size={14} className={cn('transition-transform', open && 'rotate-180')} />
       </button>
 
-      {/* Dropdown */}
       {open && (
         <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-bg-secondary shadow-lg max-h-64 overflow-hidden flex flex-col">
-          {/* Search filter */}
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
             <Search size={14} className="text-text-muted shrink-0" />
             <input
@@ -192,9 +166,7 @@ export function GroupPicker({ value, onChange, tree, placeholder = 'Select a gro
             )}
           </div>
 
-          {/* Options */}
           <div className="overflow-y-auto p-1">
-            {/* No group option */}
             <button
               type="button"
               onClick={() => handleSelect(null)}
@@ -218,7 +190,6 @@ export function GroupPicker({ value, onChange, tree, placeholder = 'Select a gro
                 onSelect={handleSelect}
                 filter={filter.toLowerCase()}
                 excludeId={excludeId}
-                kindFilter={kindFilter}
               />
             ))}
           </div>
